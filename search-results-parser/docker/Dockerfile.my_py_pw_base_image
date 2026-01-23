@@ -1,0 +1,55 @@
+FROM ubuntu:noble-20260113
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG TZ=UTC
+ARG DOCKER_IMAGE_NAME_TEMPLATE="sinan/playwright/python:v1.57.0-noble-20260113"
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+
+# set shell to bash since uv is installed locally in /root/.local/bin/uv and /bin/sh can't find it.
+SHELL ["/bin/bash", "-c"]
+
+# === INSTALL necessary stuff for Ubuntu and create non-root user ===
+RUN apt-get update && \
+    apt-get install -y curl adduser python3 && \
+    # Align with upstream Python image and don't be externally managed:
+    # https://github.com/docker-library/python/issues/948
+    rm /usr/lib/python3.12/EXTERNALLY-MANAGED && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3 1 && \
+    curl -sSL https://bootstrap.pypa.io/get-pip.py -o get-pip.py && \
+    python get-pip.py && \
+    rm get-pip.py && \
+    # clean apt cache
+    rm -rf /var/lib/apt/lists/* && \
+    # Create the pwuser
+    adduser pwuser
+
+ENV PATH="$PATH:/root/.local/bin"
+
+# === BAKE BROWSERS INTO IMAGE ===
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# 1. Add tip-of-tree Playwright package to install its browsers.
+#    The package should be built beforehand from tip-of-tree Playwright.
+COPY ./dist/*-manylinux*.whl /tmp/
+
+# 2. Bake in browsers & deps.
+#    Browsers will be downloaded in `/ms-playwright`.
+#    Note: make sure to set 777 to the registry so that any user can access
+#    registry.
+RUN mkdir /ms-playwright && \
+    mkdir /ms-playwright-agent && \
+    cd /ms-playwright-agent && \
+    pip install /tmp/*manylinux1_x86_64*.whl && \
+    playwright mark-docker-image "${DOCKER_IMAGE_NAME_TEMPLATE}" && \
+    playwright install chromium --with-deps && rm -rf /var/lib/apt/lists/* && \
+    rm /tmp/*.whl && \
+    rm -rf /ms-playwright-agent && \
+    chmod -R 777 /ms-playwright
+
+# === Add uv ===
+
+ADD https://astral.sh/uv/install.sh /install.sh
+RUN chmod u+x /install.sh && /install.sh && rm /install.sh
