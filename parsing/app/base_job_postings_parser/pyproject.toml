@@ -1,0 +1,5 @@
+[project]
+name = "base-job-postings-parser"
+version = "0.1.0"
+description = "ABCs and repo pattern for various job posting scraping apps"
+requires-python = "==3.12.3"

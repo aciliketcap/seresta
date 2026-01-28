@@ -1,0 +1,31 @@
+services:
+  serespar:
+    image: playwright:localbuild-noble-20260113-v1.57.0
+    container_name: serespar
+    ports:
+      - "5678:5678"
+    environment:
+      - DISPLAY
+      - SEARCH_URL
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=postgres
+      - POSTGRES_SSLMODE=disable
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./../serespar:/opt/serespar
+      - ./../app/:/app
+    working_dir: /app/linkedin-job-postings-parser
+    command: /app/dev-script.sh
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - ~/prj/serespar-data/2026-04-28_1/:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"

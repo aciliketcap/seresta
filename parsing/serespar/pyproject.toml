@@ -1,0 +1,12 @@
+[project]
+name = "serespar"
+version = "0.1.0"
+description = "Search Results Parser - A scraper powered by Playwright"
+authors = [
+    { name = "Sinan Akpolat", email = "aciliketcap@gmail.com" }
+]
+requires-python = "==3.12.3"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

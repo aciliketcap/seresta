@@ -1,0 +1,27 @@
+[project]
+name = "linkedin-job-postings-parser"
+version = "0.1.0"
+description = "App which parses the results of a LinkedIn Jobs search. It's powered by the serespar library and playwright."
+readme = "README.md"
+requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "serespar",
+    "base_job_postings_parser"
+]
+
+[dependency-groups]
+test-and-lint = [
+    "ruff",
+    "pytest",
+    "pytest-cov"
+]
+dev = [
+    "debugpy>=1.8.20",
+]
+
+[tool.uv.sources]
+serespar = { path = "/opt/serespar", editable = true }
+base_job_postings_parser = { path = "../base_job_postings_parser", editable = true }
