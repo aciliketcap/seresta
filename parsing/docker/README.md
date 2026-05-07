@@ -33,7 +33,7 @@ cp ../../dist/*-manylinux*.whl dist/
 docker build --platform "linux/amd64" -t "playwright:localbuild-noble-20260113-v1.57.0" -f "Dockerfile.my_py_pw_base_image" .
 rm -rf "dist/"
 ```
-5. Optionally you can run tests to see if the playwright inside the base image is working properly. However all tests will fail for browsers other than playwright.
+5. Optionally you can run tests (with python 3.9) to see if the playwright inside the base image is working properly. However all tests will fail for browsers other than chromium.
 ```
 docker run --rm -it -v $(pwd):/app -w /app playwright:localbuild-noble-20260113-v1.57.0 uv venv --python 3.9 && pip install -r local-requirements.txt && pytest
 ```

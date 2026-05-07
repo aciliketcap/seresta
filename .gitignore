@@ -12,9 +12,13 @@ wheels/
 
 # Virtual environments
 .venv
+.python-version
 
 # Personal editor cfgs
 .vscode
 
+# docker related
+.env
+
 # Project related
-search-results-parser/app
+parsing/app/dev-secrets/
