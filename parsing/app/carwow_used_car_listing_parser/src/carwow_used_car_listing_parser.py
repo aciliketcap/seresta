@@ -1,0 +1,41 @@
+from typing import Any, Generator
+from playwright.sync_api import Locator, Page
+from serespar import ResultsParseSession
+import logging
+from time import sleep # for sleeping random amounts of time between clicks
+
+logger = logging.getLogger(__name__)
+
+NEW_PAGE_LOAD_WAIT_SECONDS = 2
+
+CARWOW_SEARCH_SELECTORS = {
+    "CAR_CARDS": "turbo-frame#stock_cars_v2_cards div.deal-card",
+    "PAGINATION_LIST": ""
+}
+
+class CarWowParseSession(ResultsParseSession):
+    def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
+        car_cards_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["CAR_CARDS"])
+        for car_card in car_cards_locator.all():
+            car_card.scroll_into_view_if_needed()
+            yield self._page, car_card
+            sleep(1)
+            logger.debug("moving on to the next card")
+
+    def paginations_in_search_results(self, max_pagination: int) -> Generator[int, Any, None]:
+        for cur_page_num in range(1, max_pagination):
+
+            yield cur_page_num
+
+            pagi_list_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["PAGINATION_LIST"])
+            for pagi in pagi_list_locator.all():
+                pagi_text = pagi.text_content()
+                logger.debug(f"pagination number is {pagi_text}")
+
+                if pagi_text == str(cur_page_num + 1):
+                    pagi.click()
+                    break
+
+            self._page.wait_for_load_state()
+            logger.debug(f"moved to page {cur_page_num + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
+            sleep(NEW_PAGE_LOAD_WAIT_SECONDS)

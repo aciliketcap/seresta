@@ -1,0 +1,27 @@
+[project]
+name = "carwow_used_car_listing_parser"
+version = "0.1.0"
+description = "App which parses the results of a used car search in carwow.com. It's powered by the serespar library and playwright."
+readme = "README.md"
+requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "serespar",
+    "base_used_car_listing_parser"
+]
+
+[dependency-groups]
+test-and-lint = [
+    "ruff",
+    "pytest",
+    "pytest-cov"
+]
+dev = [
+    "debugpy>=1.8.20",
+]
+
+[tool.uv.sources]
+serespar = { path = "/opt/serespar", editable = true }
+base_used_car_listing_parser = { path = "../base_used_car_listing_parser", editable = true }

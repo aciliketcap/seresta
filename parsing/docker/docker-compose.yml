@@ -15,7 +15,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./../serespar:/opt/serespar
       - ./../app/:/app
-    working_dir: /app/linkedin-job-postings-parser
+    working_dir: /app/carwow_used_car_listing_parser
     command: /app/dev-script.sh
     depends_on:
       - postgres
@@ -26,6 +26,6 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
     volumes:
-      - ~/prj/serespar-data/2026-04-28_1/:/var/lib/postgresql/data
+      - ~/prj/serespar-data/2026-06-24_carwow_car/:/var/lib/postgresql/data
     ports:
       - "5432:5432"

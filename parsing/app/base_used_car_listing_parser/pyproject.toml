@@ -1,0 +1,5 @@
+[project]
+name = "base-used-car-listing-parser"
+version = "0.1.0"
+description = "ABCs and repo pattern for used car listing scraping apps"
+requires-python = "==3.12.3"

@@ -34,7 +34,7 @@ trap - ERR
 
 if [ ! -f "$SECRETS_DIR/linkedin_cookies.json" ]; then
     echo "linkedin_cookies.json not found, running initial login script..."
-    cd /app && python -m linkedin-job-postings-parser.initial_login
+    # cd /app && python -m linkedin-job-postings-parser.initial_login
 fi
 
 
@@ -42,9 +42,10 @@ echo "STARTING THE APP WITH DEBUGPY"
 
 # run in perpetual debug sessions
 while true; do
+    # -m linkedin-job-postings-parser.src.__main__
     cd /app && python -Xfrozen_modules=off \
     -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
-    -m linkedin-job-postings-parser.src.__main__ "$SEARCH_URL";
+    -m carwow_used_car_listing_parser.src.__main__ "$SEARCH_URL";
 done
 
 # run without debugger
