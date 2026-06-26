@@ -1,6 +1,6 @@
 from typing import Any, Generator
 from playwright.sync_api import Locator, Page
-from serespar import ResultsParseSession
+from base_job_postings_parser import BaseJobPostingsParseSession, Source
 import logging
 from time import sleep # for sleeping random amounts of time between clicks
 
@@ -15,7 +15,9 @@ NEW_PAGE_LOAD_WAIT_SECONDS=3
 
 JOB_BUTTON_SCROLL_PIXELS = 120
 
-class LinkedInJobsParseSession(ResultsParseSession):
+class LinkedInJobsParseSession(BaseJobPostingsParseSession):
+    SOURCE = Source.LINKEDIN
+
     def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
         job_button_list_locator = self._page.locator(LINKEDIN_SEARCH_SELECTORS["JOB_BUTTON_LIST"])
         for job_button in job_button_list_locator.all():

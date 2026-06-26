@@ -9,6 +9,7 @@ from base_job_postings_parser import (
     build_engine_from_env,
     init_schema,
     make_sessionmaker,
+    seed_sources,
 )
 
 from .linkedin_jobs_parser import LinkedInJobsParseSession
@@ -32,17 +33,18 @@ opts = parser.parse_args()
 engine = build_engine_from_env(secrets_dir)
 init_schema(engine)
 sm = make_sessionmaker(engine)
+seed_sources(sm)
 
 repo = LinkedInRawJobPostingSqlAlchemyRepository(sm)
 extractor = LinkedInJobPostingExtractor(repo)
 
-with LinkedInJobsParseSession(opts.url, opts.cookies_file_path) as session:
+with LinkedInJobsParseSession(opts.url, sm, opts.cookies_file_path) as session:
     logger.debug("Inside the session ctx!")
 
     for cur_pagi_num in session.paginations_in_search_results(MAX_PAGI_DEPTH):
         logger.debug(f"Currently on page {cur_pagi_num} of search results.")
         for result_tuple in session.results_in_pagination():
             page, job_card = result_tuple
-            extractor.extract_and_persist(*result_tuple)
+            extractor.extract_and_persist(page, job_card, session.parse_session_id)
             logger.info("Found another job ad!")
             

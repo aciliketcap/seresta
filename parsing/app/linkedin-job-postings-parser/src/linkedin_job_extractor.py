@@ -4,7 +4,7 @@ import re
 from playwright.sync_api import Locator, Page
 from pydantic_core import Url
 
-from base_job_postings_parser import JobPostingExtractor, JobPostingExtractionError
+from base_job_postings_parser import JobPostingExtractor, JobPostingExtractionError, Source
 from .linkedin_repos import LinkedInRawJobPosting, LinkedInRawJobPostingSqlAlchemyRepository
 
 
@@ -22,7 +22,7 @@ class LinkedInJobPostingExtractor(JobPostingExtractor):
     def __init__(self, repo: LinkedInRawJobPostingSqlAlchemyRepository):
         super().__init__(repo)
 
-    def extract_and_persist(self, page: Page, job_card: Locator) -> None:
+    def extract_and_persist(self, page: Page, job_card: Locator, parse_session_id: int) -> None:
         try:
             # we don't use dynamic job_card, we go to the same div which holds the whole job posting
             jp_frame = page.locator(LINKEDIN_JOB_POSTING_SELECTORS["JOB_POSTING_FRAME"])
@@ -35,13 +35,13 @@ class LinkedInJobPostingExtractor(JobPostingExtractor):
                 logger.error(f"Unable to read an Id from URL string {url}")
                 return
 
-            id = match.group(1)
+            seres_id = match.group(1)
 
             jd_loc = jp_frame.locator(LINKEDIN_JOB_POSTING_SELECTORS["JD"])
             jp = LinkedInRawJobPosting(
-                id="linkedin_" + id,
-                source="linkedin",
-                source_id=id,
+                source=Source.LINKEDIN,
+                seres_id=seres_id,
+                last_found_in=parse_session_id,
                 url=Url(url),
                 title=title,
                 jd_text=jd_loc.inner_text(),

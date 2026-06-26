@@ -5,7 +5,7 @@ import re
 from playwright.sync_api import Locator, Page
 from pydantic_core import Url
 
-from base_used_car_listing_parser import UsedCarListingExtractor, UsedCarListingExtractionError
+from base_used_car_listing_parser import Source, UsedCarListingExtractor, UsedCarListingExtractionError
 from .carwow_repos import CarWowRawUsedCarListing, CarWowRawUsedCarListingSqlAlchemyRepository
 
 
@@ -71,19 +71,19 @@ class CarWowUsedCarListingExtractor(UsedCarListingExtractor):
         )
 
 
-    def extract_and_persist(self, page: Page, item: Locator) -> None:
+    def extract_and_persist(self, page: Page, item: Locator, parse_session_id: int) -> None:
         try:
             trim = item.locator(CARWOW_CAR_CARD_SELECTORS["TRIM"]).text_content().strip()
             make, model = self._extract_make_model(item)
-            id, url = self._extract_id_url(item)
+            seres_id, url = self._extract_id_url(item)
             price = self._extract_price(item)
             summary_section: SummarySection = self._extract_summary_elts(item)
             year, miles = self._extract_year_miles(item)
 
             used_car_listing = CarWowRawUsedCarListing(
-                id="carwow_" + id,
-                source="carwow",
-                source_id=id,
+                source=Source.CARWOW,
+                seres_id=seres_id,
+                last_found_in=parse_session_id,
                 url=url,
                 trim=trim,
                 make=make,

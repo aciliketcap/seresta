@@ -1,6 +1,6 @@
 from typing import Any, Generator
 from playwright.sync_api import Locator, Page
-from serespar import ResultsParseSession
+from base_used_car_listing_parser import BaseUsedCarListingParseSession, Source
 import logging
 from time import sleep # for sleeping random amounts of time between clicks
 
@@ -14,7 +14,9 @@ BMW_SEARCH_SELECTORS = {
     "AD_CARD_CLASS": "car-info-card"
 }
 
-class BigMotoringWorldParseSession(ResultsParseSession):
+class BigMotoringWorldParseSession(BaseUsedCarListingParseSession):
+    SOURCE = Source.BIG_MOTORING_WORLD
+
     def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
         car_cards_locator = self._page.locator(BMW_SEARCH_SELECTORS["CAR_CARDS"])
         for car_card in car_cards_locator.all():

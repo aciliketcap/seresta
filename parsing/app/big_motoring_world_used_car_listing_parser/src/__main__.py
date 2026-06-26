@@ -9,6 +9,7 @@ from base_used_car_listing_parser import (
     build_engine_from_env,
     init_schema,
     make_sessionmaker,
+    seed_sources,
 )
 
 from .big_motoring_world_used_car_listing_parser import BigMotoringWorldParseSession
@@ -33,20 +34,21 @@ opts = parser.parse_args()
 engine = build_engine_from_env(secrets_dir)
 init_schema(engine)
 sm = make_sessionmaker(engine)
+seed_sources(sm)
 
 repo = BigMotoringWorldRawUsedCarListingSqlAlchemyRepository(sm)
 extractor = BigMotoringWorldUsedCarListingExtractor(repo)
 
-with BigMotoringWorldParseSession(opts.url, opts.cookies_file_path) as session:
+with BigMotoringWorldParseSession(opts.url, sm, opts.cookies_file_path) as session:
     logger.debug("Inside the session ctx!")
 
     for cur_pagi_num in session.paginations_in_search_results(MAX_PAGI_DEPTH):
         logger.debug(f"Currently on page {cur_pagi_num} of search results.")
         for result_tuple in session.results_in_pagination():
-            page, job_card = result_tuple
+            page, car_card = result_tuple
             try:
-                extractor.extract_and_persist(*result_tuple)
-                logger.info("Found another job ad!")
+                extractor.extract_and_persist(page, car_card, session.parse_session_id)
+                logger.info("Found another car listing!")
             except Exception as e:
                 logger.exception(msg="Failed to extract info from card:", exc_info=e)
             
