@@ -1,13 +1,12 @@
+from base_used_car_listing_parser.base_repos import Source
+from serespar import BaseExtractor
 import dataclasses
 import logging
-import re
 
 from playwright.sync_api import Locator, Page
 from pydantic_core import Url
 
-from base_used_car_listing_parser import Source, UsedCarListingExtractor, UsedCarListingExtractionError
 from .big_motoring_world_repos import BigMotoringWorldRawUsedCarListing, BigMotoringWorldRawUsedCarListingSqlAlchemyRepository
-
 
 logger = logging.getLogger(__name__)
 BMW_BASE_URL = "https://www.bigmotoringworld.co.uk"
@@ -27,37 +26,42 @@ class CarInfos():
     engine_size: int|None = None
     range: int|None = None
 
-class BigMotoringWorldUsedCarListingExtractor(UsedCarListingExtractor):
-    def __init__(self, repo: BigMotoringWorldRawUsedCarListingSqlAlchemyRepository):
-        super().__init__(repo)
-
-    # TODO: make _extract_??? methods fail gracefully
-
-    def _extract_id_url(self, item: Locator) -> tuple[str, Url]:
-        url: str = BMW_BASE_URL + item.get_attribute("href")
+class BigMotoringWorldUsedCarListingExtractor(
+    BaseExtractor[
+        BigMotoringWorldRawUsedCarListingSqlAlchemyRepository,
+        BigMotoringWorldRawUsedCarListing
+        ]):
+    @BaseExtractor.critical_info
+    def _extract_id_url(self) -> tuple[str, Url]:
+        url: str = BMW_BASE_URL + self._item.get_attribute("href")
         id = url.split("-")[-1][:-1]
         return id, Url(url)
 
-    def _extract_make_model(self, item: Locator) -> tuple[str, str]:
-        make_model_str: str = item.locator(BMW_CAR_CARD_SELECTORS["MAKE_MODEL"]).text_content()
+    @BaseExtractor.critical_info
+    def _extract_make_model(self) -> tuple[str, str]:
+        make_model_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["MAKE_MODEL"]).text_content()
         make_model = make_model_str.split(maxsplit=1)
         return make_model[0], make_model[1]
 
-    def _extract_year_trim(self, item: Locator) -> tuple[int, str]:
-        year_trim_str: str = item.locator(BMW_CAR_CARD_SELECTORS["SPEC"]).text_content()
+    @BaseExtractor.critical_info
+    def _extract_year_trim(self) -> tuple[int, str]:
+        year_trim_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["SPEC"]).text_content()
         year_trim = year_trim_str.split("|", maxsplit=1)
         return int(year_trim[0].strip()), year_trim[1].strip()
     
-    def _extract_price(self, item: Locator) -> int:
-        full_price_str: str = item.locator(selector_or_locator=BMW_CAR_CARD_SELECTORS["PRICE"]).first.text_content()
+    @BaseExtractor.critical_info
+    def _extract_price(self) -> int:
+        full_price_str: str = self._item.locator(selector_or_locator=BMW_CAR_CARD_SELECTORS["PRICE"]).first.text_content()
         return int(full_price_str[1:].replace(",", ""))
 
-    def _extract_miles(self, miles_info: Locator) -> int:
-        miles_str = miles_info.text_content()
+    @BaseExtractor.critical_info
+    def _extract_miles(self, miles_loc) -> int:
+        miles_str = miles_loc.first.text_content()
         return int(miles_str.split(" ")[0].replace(",", ""))
 
-    def _extract_infos(self, item: Locator) -> CarInfos:
-        info_locators = item.locator(BMW_CAR_CARD_SELECTORS["INFO_FLEX_ELTS"]).all()
+    @BaseExtractor.critical_info
+    def _extract_infos(self) -> CarInfos:
+        info_locators = self._item.locator(BMW_CAR_CARD_SELECTORS["INFO_FLEX_ELTS"]).all()
         miles = self._extract_miles(info_locators[0])
         transmission: str = info_locators[1].text_content()
         fuel_type: str = info_locators[2].text_content()
@@ -77,39 +81,35 @@ class BigMotoringWorldUsedCarListingExtractor(UsedCarListingExtractor):
             range=range,
         )
 
-    def _extract_location(self, item: Locator) -> str:
-        location_str: str = item.locator(BMW_CAR_CARD_SELECTORS["LOCATION"]).text_content()
+    @BaseExtractor.noncrit_info(error_value=None)
+    def _extract_location(self) -> str:
+        location_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["LOCATION"]).text_content()
         return location_str.strip()
 
+    def extract_and_persist(self) -> None:
+        """This must be called from inside a `with BigMotoringWorldUsedCarListingExtractor():` block"""
 
-    def extract_and_persist(self, page: Page, item: Locator, parse_session_id: int) -> None:
-        try:
-            make, model = self._extract_make_model(item)
-            seres_id, url = self._extract_id_url(item)
-            price = self._extract_price(item)
-            car_infos: CarInfos = self._extract_infos(item)
-            year, trim = self._extract_year_trim(item)
-            location = self._extract_location(item)
+        make, model = self._extract_make_model()
+        seres_id, url = self._extract_id_url()
+        price = self._extract_price()
+        car_infos: CarInfos = self._extract_infos()
+        year, trim = self._extract_year_trim()
+        location = self._extract_location()
 
-            used_car_listing = BigMotoringWorldRawUsedCarListing(
-                source=Source.BIG_MOTORING_WORLD,
-                seres_id=seres_id,
-                last_found_in=parse_session_id,
-                url=url,
-                trim=trim,
-                make=make,
-                model=model,
-                year=year,
-                price=price,
-                mileage=car_infos.miles,
-                fuel_type=car_infos.fuel_type,
-                transmission=car_infos.transmission,
-                engine_size=car_infos.engine_size,
-                range=car_infos.range,
-                location=location,
-            )
-
-        except: # TODO: I'm not sure what I'm catching for, need to do some trial and error
-            raise UsedCarListingExtractionError("we will raise like this if we can't parse a card!")
-
-        self._repo.add(used_car_listing)
+        self._seres = BigMotoringWorldRawUsedCarListing(
+            source=Source.BIG_MOTORING_WORLD,
+            seres_id=seres_id,
+            last_found_in=self._ctx.parse_session_id,
+            url=url,
+            trim=trim,
+            make=make,
+            model=model,
+            year=year,
+            price=price,
+            mileage=car_infos.miles,
+            fuel_type=car_infos.fuel_type,
+            transmission=car_infos.transmission,
+            engine_size=car_infos.engine_size,
+            range=car_infos.range,
+            location=location,
+        )

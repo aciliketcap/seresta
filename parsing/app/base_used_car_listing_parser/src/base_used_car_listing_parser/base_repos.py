@@ -1,4 +1,5 @@
 """A model of the info in the car cards. Called raw because the listing is not processed yet."""
+from serespar.base_repos import AbstractBaseRepository
 
 import abc
 import logging
@@ -171,13 +172,14 @@ class BaseRawUsedCarListingORM(Base):
         "polymorphic_identity": 0,
     }
 
-class AbstractBaseRawUsedCarListingRepository(abc.ABC):
+class AbstractBaseRawUsedCarListingRepository(
+    AbstractBaseRepository[BaseRawUsedCarListing]):
     @abc.abstractmethod
-    def add(self, used_car_listing: BaseRawUsedCarListing) -> None:
+    def add(self, seres: BaseRawUsedCarListing) -> None:
         pass
 
     @abc.abstractmethod
-    def get(self, used_car_listing_id: int) -> BaseRawUsedCarListing | None:
+    def get(self, seres_id: int) -> BaseRawUsedCarListing | None:
         pass
 
 
@@ -190,7 +192,7 @@ class BaseRawUsedCarListingSqlAlchemyRepository(AbstractBaseRawUsedCarListingRep
     def __init__(self, sm: sessionmaker[Session]) -> None:
         self._sm = sm
 
-    def add(self, used_car_listing: BaseRawUsedCarListing) -> None:
+    def add(self, seres: BaseRawUsedCarListing) -> None:
         # One transaction for the dedup check + insert + join-row write, so
         # there's no TOCTOU window between "is this seres_id already there?"
         # and the insert.
@@ -198,7 +200,7 @@ class BaseRawUsedCarListingSqlAlchemyRepository(AbstractBaseRawUsedCarListingRep
         # source, so checking seres_id here is effectively per-source.
         with self._sm.begin() as session:
             existing = session.scalar(
-                select(self.ORM).where(self.ORM.seres_id == used_car_listing.seres_id)
+                select(self.ORM).where(self.ORM.seres_id == seres.seres_id)
             )
             if existing is not None:
                 # TODO: when a listing already exists we should update its
@@ -207,30 +209,30 @@ class BaseRawUsedCarListingSqlAlchemyRepository(AbstractBaseRawUsedCarListingRep
                 logger.info(
                     "Used car listing seres_id=%s from source=%s already exists "
                     "(id=%s); skipping (dedup handling not implemented yet).",
-                    used_car_listing.seres_id,
-                    used_car_listing.source,
+                    seres.seres_id,
+                    seres.source,
                     existing.id,
                 )
                 return
 
             # mode="json" so pydantic_core.Url becomes str for the String column.
             # id is unset (autoincrement), so exclude it from the insert.
-            orm = self.ORM(**used_car_listing.model_dump(mode="json", exclude={"id"}))
+            orm = self.ORM(**seres.model_dump(mode="json", exclude={"id"}))
             session.add(orm)
             session.flush()  # populate orm.id for the joining-table row
-            if used_car_listing.last_found_in is not None:
+            if seres.last_found_in is not None:
                 session.add(
                     SearchResultInParseSessionORM(
                         search_result_id=orm.id,
-                        parse_session_id=used_car_listing.last_found_in,
+                        parse_session_id=seres.last_found_in,
                     )
                 )
 
-    def get(self, used_car_listing_id: int) -> BaseRawUsedCarListing | None:
+    def get(self, seres_id: int) -> BaseRawUsedCarListing | None:
         with self._sm() as session:
             # Polymorphism returns the concrete ORM subclass; model_validate
             # then yields the matching Pydantic subclass.
-            row = session.get(self.ORM, used_car_listing_id)
+            row = session.get(self.ORM, seres_id)
             return self.PYDANTIC.model_validate(row) if row is not None else None  # type: ignore[return-value]
 
 

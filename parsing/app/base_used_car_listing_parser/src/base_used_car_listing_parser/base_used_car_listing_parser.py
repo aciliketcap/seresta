@@ -35,7 +35,6 @@ class BaseUsedCarListingParseSession(ResultsParseSession):
     ) -> None:
         super().__init__(target, cookie_path)
         self._parse_session_repo = ParseSessionRepository(sm)
-        self.parse_session_id: int | None = None
 
     def __enter__(self) -> Self:
         super().__enter__()

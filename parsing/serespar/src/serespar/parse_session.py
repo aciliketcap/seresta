@@ -32,6 +32,7 @@ class ResultsParseSession():
     _page: Page # playwright page object
     _cookie_path: Path | str | None
     _initial_search_page_url: str
+    num_failed_results: int
 
     def __init__(
             self,
@@ -42,7 +43,8 @@ class ResultsParseSession():
 
     def __enter__(self) -> Self:
         self._start_time = datetime.now()
-
+        self.num_failed_results = 0
+        
         # get context and manually enter / exit instead of using with statement
         self._pw_ctx = sync_playwright()
         pw = self._pw_ctx.__enter__()

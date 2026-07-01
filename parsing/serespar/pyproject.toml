@@ -6,6 +6,9 @@ authors = [
     { name = "Sinan Akpolat", email = "aciliketcap@gmail.com" }
 ]
 requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3"
+]
 
 [build-system]
 requires = ["hatchling"]

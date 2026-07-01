@@ -14,7 +14,7 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
-# create .venv from the container image if it doesn't exist
+# create .venv from the container image if it doesn't exist (or if uv.lock is deleted)
 # we need to use --system-site-packages because all pw related things are there
 if ! grep -q -e 'home = /usr/bin' .venv/pyvenv.cfg; then
     echo "Setting up .venv for dev"
@@ -41,11 +41,12 @@ fi
 echo "STARTING THE APP WITH DEBUGPY"
 
 # run in perpetual debug sessions
+# PYTHONFAULTHANDLER=1 is added since issues in serespar can segfault apps without explicit, debuggable errors
 while true; do
     # -m linkedin-job-postings-parser.src.__main__
-    cd /app && python -Xfrozen_modules=off \
+    cd /app && PYTHONFAULTHANDLER=1 python -Xfrozen_modules=off \
     -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
-    -m carwow_used_car_listing_parser.src.__main__ "$SEARCH_URL";
+    -m big_motoring_world_used_car_listing_parser.src.__main__ "$SEARCH_URL";
 done
 
 # run without debugger
