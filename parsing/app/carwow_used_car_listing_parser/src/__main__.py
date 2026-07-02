@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from serespar import ParseItemContext
 import argparse
 import logging
 import os
@@ -37,18 +38,30 @@ sm = make_sessionmaker(engine)
 seed_sources(sm)
 
 repo = CarWowRawUsedCarListingSqlAlchemyRepository(sm)
-extractor = CarWowUsedCarListingExtractor(repo)
 
 with CarWowParseSession(opts.url, sm, opts.cookies_file_path) as session:
     logger.debug("Inside the session ctx!")
 
     for cur_pagi_num in session.paginations_in_search_results(MAX_PAGI_DEPTH):
         logger.debug(f"Currently on page {cur_pagi_num} of search results.")
+        cur_item_num = 0
         for result_tuple in session.results_in_pagination():
+            cur_item_num += 1
             page, car_card = result_tuple
+            ctx = ParseItemContext(
+                parse_session_id=session.parse_session_id,
+                cur_pagi_num=cur_pagi_num,
+                cur_item_num=cur_item_num
+            )
             try:
-                extractor.extract_and_persist(page, car_card, session.parse_session_id)
-                logger.info("Found another car listing!")
-            except Exception as e:
-                logger.exception(msg="Failed to extract info from card:", exc_info=e)
+                with CarWowUsedCarListingExtractor(
+                    repo,
+                    page,
+                    car_card,
+                    ctx
+                    ) as xtor:
+                    logger.info("Found another car listing!")
+                    xtor.extract_and_persist()
+            except Exception:
+                session.num_failed_results += 1
             

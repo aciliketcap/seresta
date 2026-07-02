@@ -87,8 +87,6 @@ class BigMotoringWorldUsedCarListingExtractor(
         return location_str.strip()
 
     def extract_and_persist(self) -> None:
-        """This must be called from inside a `with BigMotoringWorldUsedCarListingExtractor():` block"""
-
         make, model = self._extract_make_model()
         seres_id, url = self._extract_id_url()
         price = self._extract_price()

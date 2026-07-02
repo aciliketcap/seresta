@@ -1,3 +1,4 @@
+from time import sleep
 from serespar import save_login_cookies
 import os
 from pathlib import Path
@@ -8,5 +9,4 @@ with save_login_cookies(
     login_url="https://www.bigmotoringworld.co.uk/",
     success_url="https://www.bigmotoringworld.co.uk/",
     cookie_file=secrets_dir/"carwow_cookies.json") as page:
-
-    pass # they don't do users
+        sleep(180) # allow developer to login with their credentials

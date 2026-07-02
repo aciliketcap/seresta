@@ -15,7 +15,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./../serespar:/opt/serespar
       - ./../app/:/app
-    working_dir: /app/big_motoring_world_used_car_listing_parser
+    working_dir: /app/carwow_used_car_listing_parser
     command: /app/dev-script.sh
     depends_on:
       - postgres

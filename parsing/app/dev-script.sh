@@ -32,21 +32,22 @@ export SECRETS_DIR=/app/dev-secrets/linkedin-job-postings-parser
 set +e
 trap - ERR
 
-if [ ! -f "$SECRETS_DIR/linkedin_cookies.json" ]; then
-    echo "linkedin_cookies.json not found, running initial login script..."
-    # cd /app && python -m linkedin-job-postings-parser.initial_login
-fi
+# TODO: make this generic for all apps that need to login and acquire cookies first
+# if [ ! -f "$SECRETS_DIR/linkedin_cookies.json" ]; then
+#     echo "linkedin_cookies.json not found, running initial login script..."
+#     cd /app && python -m linkedin-job-postings-parser.initial_login
+# fi
 
 
 echo "STARTING THE APP WITH DEBUGPY"
 
 # run in perpetual debug sessions
-# PYTHONFAULTHANDLER=1 is added since issues in serespar can segfault apps without explicit, debuggable errors
+# PYTHONFAULTHANDLER=1 is added since CPython can segfault because of quite unexpected issues
+# edit the last line to point to your app's entry point
 while true; do
-    # -m linkedin-job-postings-parser.src.__main__
     cd /app && PYTHONFAULTHANDLER=1 python -Xfrozen_modules=off \
     -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
-    -m big_motoring_world_used_car_listing_parser.src.__main__ "$SEARCH_URL";
+    -m carwow_used_car_listing_parser.src.__main__ "$SEARCH_URL";
 done
 
 # run without debugger
