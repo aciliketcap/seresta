@@ -47,6 +47,7 @@ class BaseExtractor[RepoT, SeresT]:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        """If something goes wrong when extracting a critical field (such as the id) then the whole record is discarded."""
         if exc_type: # left case
             # TODO: I want more info to be provided about what it was able to collect and what caused the critical failure by the subclasses!
             logger.exception("A critical field couldn't be parsed, discarding the search result %s at page %s!", self._ctx.cur_item_num, self._ctx.cur_pagi_num)
@@ -61,6 +62,7 @@ class BaseExtractor[RepoT, SeresT]:
 
     @staticmethod
     def noncrit_info(error_value=None):
+        """If some extra fields couldn't be extracted then the issue is logged and the code moves on."""
         def decorator(parsing_func):
             @functools.wraps(wrapped=parsing_func)
             def wrapper(self, *args, **kwargs):
