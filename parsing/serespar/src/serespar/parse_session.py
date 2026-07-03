@@ -5,10 +5,13 @@ from pathlib import Path
 from abc import abstractmethod
 from typing import Generator, Any, Self
 
-from playwright.sync_api import Locator, sync_playwright, Browser, Page
+from playwright.sync_api import Locator, sync_playwright, Browser, Page, ViewportSize
 
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_VIEWPORT_WIDTH = 1600
+DEFAULT_VIEWPORT_HEIGHT = 1000
 
 
 class ResultsParseSession():
@@ -40,6 +43,9 @@ class ResultsParseSession():
             cookie_path: str | None = None) -> None:
         self._cookie_path = cookie_path
         self._initial_search_page_url = target
+        # TODO: make these readable from a config
+        # TODO: can we make this a prop which can be set in real time?
+        self._view_port = ViewportSize(width=DEFAULT_VIEWPORT_WIDTH, height=DEFAULT_VIEWPORT_HEIGHT)
 
     def __enter__(self) -> Self:
         self._start_time = datetime.now()
@@ -49,8 +55,11 @@ class ResultsParseSession():
         self._pw_ctx = sync_playwright()
         pw = self._pw_ctx.__enter__()
 
+        # TODO: headless, viewport size etc. needs to be passed from a config to here
         self._browser = pw.chromium.launch(headless=False)
-        context = self._browser.new_context()
+        context = self._browser.new_context(
+            viewport=self._view_port
+        )
         logger.debug(f"ctx is {context}")
 
         if self._cookie_path:
@@ -81,8 +90,7 @@ class ResultsParseSession():
         
         Ideally we shouldn't need to type in the search phrase or click anything including a search button. However in cases where this is not possible subclass should override this function to do whatever is necessary.
         """
-        self._page.goto(self._initial_search_page_url)
-        self._page.wait_for_load_state()
+        self._page.goto(self._initial_search_page_url, wait_until="load")
         logger.info(f"URL `{self._initial_search_page_url}` should be loaded now.")
 
     @abstractmethod

@@ -1,3 +1,4 @@
+from pydantic_core import Url
 from pydantic import BaseModel
 from pydantic.dataclasses import dataclass
 import functools
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 class ExtractionCriticalError(Exception):
     pass
 
+class ParsingError(Exception):
+    pass
 @dataclass
 class ParseItemContext:
     """Where we are in the parsing process, used for logging and error reporting."""
@@ -85,3 +88,49 @@ class BaseExtractor[RepoT, SeresT]:
                     f"Failed to parse critical info via `{parsing_func.__name__}` method of class `{self.__class__.__name__}` for item {self._ctx.cur_item_num} on pagi {self._ctx.cur_pagi_num}"
                 ) from exc
         return wrapper
+
+    # TODO: let's think if we can monkeypatch the functions below into PW locators directly, like extension classes
+
+    def text_at_selector(self, selector) -> str:
+        # I wish I could do monads here :(
+        maybe_str = self._item.locator(selector).first.text_content()
+        if not maybe_str:
+            raise ParsingError(f"The selector {selector} did not yield a string.")
+
+        return maybe_str.strip()
+
+    def text_at_locator(self, locator) -> str:
+        maybe_str = locator.first.text_content()
+        if not maybe_str:
+            raise ParsingError(f"The locator {locator} did not yield a string.")
+
+        return maybe_str.strip()
+
+    @staticmethod
+    def try_href_attr(locator, base_url) -> Url:
+        try:
+            maybe_url_str = locator.get_attribute('href')
+        except Exception as exc:
+            raise ParsingError(f"Unable to read the `href` attribute of {locator}") from exc
+
+        if not maybe_url_str:
+            raise ParsingError(f"Unable to get the URL for locator {locator}")
+
+        try:
+            return Url(base_url + maybe_url_str)
+        except Exception as exc:
+            raise ParsingError(f"Unable to parse the `href` attribute \"{base_url + maybe_url_str}\" of {locator} into a valid URL") from exc
+        
+
+    def url_from_link_elt(self, other_link_elt=None, base_url="") -> Url:
+        """Give the url of the container elt, which is itself a link elt locator sometimes. Otherwise give the url in the link elt in param"""
+        maybe_url_str = None
+        if other_link_elt:
+            return BaseExtractor.try_href_attr(other_link_elt, base_url)
+        else:
+            return BaseExtractor.try_href_attr(self._item, base_url)
+
+
+
+            
+

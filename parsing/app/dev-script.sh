@@ -26,17 +26,17 @@ fi
 
 source .venv/bin/activate
 export PYTHONPATH=/opt/serespar/src
-export SECRETS_DIR=/app/dev-secrets/linkedin-job-postings-parser
+export SECRETS_DIR=/app/dev-secrets/carwow_used_car_listing_parser
 
 # ok, we're set
 set +e
 trap - ERR
 
 # TODO: make this generic for all apps that need to login and acquire cookies first
-# if [ ! -f "$SECRETS_DIR/linkedin_cookies.json" ]; then
-#     echo "linkedin_cookies.json not found, running initial login script..."
-#     cd /app && python -m linkedin-job-postings-parser.initial_login
-# fi
+if [ ! -f "$SECRETS_DIR/carwow_cookies.json" ]; then
+    echo "carwow_cookies.json not found, running initial login script..."
+    cd /app && python -m carwow_used_car_listing_parser.src.initial_login
+fi
 
 
 echo "STARTING THE APP WITH DEBUGPY"

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from time import sleep
 from serespar import ParseItemContext
 import argparse
 import logging
@@ -23,12 +24,16 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
 secrets_dir = Path(os.environ["SECRETS_DIR"])
-MAX_PAGI_DEPTH = int(os.environ.get("MAX_PAGI_DEPTH", 5))
+# TODO: this is also a config param!
+MAX_PAGI_DEPTH = int(os.environ.get("MAX_PAGI_DEPTH", 10))
+
+# There are 12 non-ad listings per page
+MAX_PAGI_DEPTH = 80
 
 parser = argparse.ArgumentParser(description='Traverse job search results in given URL')
 parser.add_argument('url', help='URL of the job search')
 parser.add_argument('-c', '--cookies-file-path',
-    default=secrets_dir/"linkedin_cookies.json",
+    default=secrets_dir/"carwow_cookies.json",
     help='Path of the auth cookies file')
 opts = parser.parse_args()
 

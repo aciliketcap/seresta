@@ -13,7 +13,7 @@ services:
       - POSTGRES_SSLMODE=disable
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ./../serespar:/opt/serespar
+      - ./../serespar/:/opt/serespar
       - ./../app/:/app
     working_dir: /app/carwow_used_car_listing_parser
     command: /app/dev-script.sh
@@ -26,6 +26,6 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
     volumes:
-      - ~/prj/serespar-data/2026-07-01_used-cars/:/var/lib/postgresql/data
+      - ~/prj/serespar-data/2026-07-08_used-cars/:/var/lib/postgresql/data
     ports:
       - "5432:5432"

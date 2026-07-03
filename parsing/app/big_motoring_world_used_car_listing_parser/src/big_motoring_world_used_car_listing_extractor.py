@@ -33,44 +33,44 @@ class BigMotoringWorldUsedCarListingExtractor(
         ]):
     @BaseExtractor.critical_info
     def _extract_id_url(self) -> tuple[str, Url]:
-        url: str = BMW_BASE_URL + self._item.get_attribute("href")
-        id = url.split("-")[-1][:-1]
-        return id, Url(url)
+        url = self.url_from_link_elt(self._item.get_attribute("href"), BMW_BASE_URL)
+        id = str(url).split("-")[-1][:-1]
+        return id, url
 
     @BaseExtractor.critical_info
     def _extract_make_model(self) -> tuple[str, str]:
-        make_model_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["MAKE_MODEL"]).text_content()
+        make_model_str: str = self.text_at_selector(BMW_CAR_CARD_SELECTORS["MAKE_MODEL"])
         make_model = make_model_str.split(maxsplit=1)
         return make_model[0], make_model[1]
 
     @BaseExtractor.critical_info
     def _extract_year_trim(self) -> tuple[int, str]:
-        year_trim_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["SPEC"]).text_content()
+        year_trim_str: str = self.text_at_selector(BMW_CAR_CARD_SELECTORS["SPEC"])
         year_trim = year_trim_str.split("|", maxsplit=1)
         return int(year_trim[0].strip()), year_trim[1].strip()
     
     @BaseExtractor.critical_info
     def _extract_price(self) -> int:
-        full_price_str: str = self._item.locator(selector_or_locator=BMW_CAR_CARD_SELECTORS["PRICE"]).first.text_content()
+        full_price_str: str = self.text_at_selector(BMW_CAR_CARD_SELECTORS["PRICE"])
         return int(full_price_str[1:].replace(",", ""))
 
     @BaseExtractor.critical_info
     def _extract_miles(self, miles_loc) -> int:
-        miles_str = miles_loc.first.text_content()
+        miles_str = self.text_at_locator(miles_loc)
         return int(miles_str.split(" ")[0].replace(",", ""))
 
     @BaseExtractor.critical_info
     def _extract_infos(self) -> CarInfos:
         info_locators = self._item.locator(BMW_CAR_CARD_SELECTORS["INFO_FLEX_ELTS"]).all()
         miles = self._extract_miles(info_locators[0])
-        transmission: str = info_locators[1].text_content()
-        fuel_type: str = info_locators[2].text_content()
+        transmission: str = self.text_at_locator(info_locators[1])
+        fuel_type: str = self.text_at_locator(info_locators[2])
         if fuel_type == "Electric":
             engine_size = None
-            range_str: str = info_locators[3].text_content()
+            range_str: str = self.text_at_locator(info_locators[3])
             range = int(range_str.split(" ", maxsplit=1)[0])
         else:
-            engine_size_str: str = info_locators[3].text_content()
+            engine_size_str: str = self.text_at_locator(info_locators[3])
             engine_size: int = int(engine_size_str[:-1].replace(".", ""))
             range = None
         return CarInfos(
@@ -83,7 +83,7 @@ class BigMotoringWorldUsedCarListingExtractor(
 
     @BaseExtractor.noncrit_info(error_value=None)
     def _extract_location(self) -> str:
-        location_str: str = self._item.locator(BMW_CAR_CARD_SELECTORS["LOCATION"]).text_content()
+        location_str: str = self.text_at_selector(BMW_CAR_CARD_SELECTORS["LOCATION"])
         return location_str.strip()
 
     def extract_and_persist(self) -> None:

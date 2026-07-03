@@ -38,7 +38,7 @@ class BigMotoringWorldParseSession(BaseUsedCarListingParseSession):
 
             pagi_list_locator = self._page.locator(BMW_SEARCH_SELECTORS["PAGINATION_LIST"])
             for pagi in pagi_list_locator.all():
-                pagi_text = pagi.text_content()
+                pagi_text = pagi.text_content().strip()
                 logger.debug(f"pagination number is {pagi_text}")
 
                 if pagi_text == str(cur_page_num + 1):
