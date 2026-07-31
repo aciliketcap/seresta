@@ -21,4 +21,4 @@ wheels/
 .env
 
 # Project related
-parsing/app/dev-secrets/
+dev-secrets

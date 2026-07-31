@@ -8,7 +8,7 @@ Connection info is split between:
 
 - environment variables for non-secret configuration (host, port, db,
   sslmode);
-- a JSON file in ``$SECRETS_DIR`` for credentials (user, password).
+- two secrets for user and password
 """
 
 import json
@@ -18,34 +18,39 @@ from pathlib import Path
 from sqlalchemy import URL, Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-
 class Base(DeclarativeBase):
     """Declarative base for every ORM class in this project."""
 
+def get_secret(secret_name) -> str:
+    """Reads a Docker secret from the standard /run/secrets/ mount point or raises IOError."""
+    # TODO: modify this to work with Vault secrets as well
+    with open(f'/run/secrets/{secret_name}', 'r') as secret_file:
+            return secret_file.read().strip()
 
-PG_CREDENTIALS_FILENAME = "postgres.json"
+def read_pg_creds_from_files() -> tuple[str, str]:
+    user = get_secret("db_user")
+    password = get_secret("db_password")
 
+    return user, password
 
-def read_pg_credentials(secrets_dir: Path) -> tuple[str, str]:
-    """Load Postgres user + password from ``secrets_dir/postgres.json``."""
-    creds_path = secrets_dir / PG_CREDENTIALS_FILENAME
-    if not creds_path.is_file():
-        raise FileNotFoundError(
-            f"Postgres credentials file not found at {creds_path}. "
-            f"Create it with keys 'user' and 'password'."
-        )
-    with creds_path.open() as f:
-        data = json.load(f)
+def read_pg_creds_from_env() -> tuple[str, str]:
     try:
-        return data["user"], data["password"]
+        user = os.environ["POSTGRES_USER"]
+        password = os.environ["POSTGRES_PASSWORD"]
+        return user, password
     except KeyError as err:
         raise KeyError(
-            f"{creds_path} is missing required key {err!s}; "
-            f"expected both 'user' and 'password'."
+            f"Required Postgres env var {err!s} is not set."
         ) from err
 
+def read_pg_credentials() -> tuple[str, str]:
+    """Try to read from docker secrets dir. Otherwise read from env vars"""
+    try:
+        return read_pg_creds_from_files()        
+    except IOError:
+        return read_pg_creds_from_env()
 
-def build_engine_from_env(secrets_dir: Path) -> Engine:
+def build_engine_from_env() -> Engine:
     """Build a SQLAlchemy ``Engine`` from env vars + the secrets file.
 
     Required env vars: ``POSTGRES_HOST``, ``POSTGRES_DB``.
@@ -63,7 +68,7 @@ def build_engine_from_env(secrets_dir: Path) -> Engine:
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     sslmode = os.environ.get("POSTGRES_SSLMODE", "disable")
 
-    user, password = read_pg_credentials(secrets_dir)
+    user, password = read_pg_credentials()
 
     url = URL.create(
         drivername="postgresql+psycopg",
@@ -79,7 +84,6 @@ def build_engine_from_env(secrets_dir: Path) -> Engine:
 
 def make_sessionmaker(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
-
 
 def init_schema(engine: Engine) -> None:
     """Create all known tables. Alembic to be added later."""

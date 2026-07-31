@@ -14,7 +14,7 @@ from base_used_car_listing_parser import (
     seed_sources,
 )
 
-from .carwow_used_car_listing_parser import CarWowParseSession
+from .carwow_used_car_listing_parser import COOKIES_FILE, CarWowParseSession
 
 from .carwow_repos import CarWowRawUsedCarListingSqlAlchemyRepository
 from .carwow_used_car_listing_extractor import CarWowUsedCarListingExtractor
@@ -23,28 +23,23 @@ from .carwow_used_car_listing_extractor import CarWowUsedCarListingExtractor
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
-secrets_dir = Path(os.environ["SECRETS_DIR"])
-# TODO: this is also a config param!
+# TODO: write proper config access stub pls
+search_url = os.environ["SEARCH_URL"]
+
+# TODO: this should be in task config!
 MAX_PAGI_DEPTH = int(os.environ.get("MAX_PAGI_DEPTH", 10))
 
 # There are 12 non-ad listings per page
 MAX_PAGI_DEPTH = 80
 
-parser = argparse.ArgumentParser(description='Traverse job search results in given URL')
-parser.add_argument('url', help='URL of the job search')
-parser.add_argument('-c', '--cookies-file-path',
-    default=secrets_dir/"carwow_cookies.json",
-    help='Path of the auth cookies file')
-opts = parser.parse_args()
-
-engine = build_engine_from_env(secrets_dir)
+engine = build_engine_from_env()
 init_schema(engine)
 sm = make_sessionmaker(engine)
 seed_sources(sm)
 
 repo = CarWowRawUsedCarListingSqlAlchemyRepository(sm)
 
-with CarWowParseSession(opts.url, sm, opts.cookies_file_path) as session:
+with CarWowParseSession(search_url, sm, COOKIES_FILE) as session:
     logger.debug("Inside the session ctx!")
 
     for cur_pagi_num in session.paginations_in_search_results(MAX_PAGI_DEPTH):

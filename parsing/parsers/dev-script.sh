@@ -26,29 +26,39 @@ fi
 
 source .venv/bin/activate
 export PYTHONPATH=/opt/serespar/src
-export SECRETS_DIR=/app/dev-secrets/carwow_used_car_listing_parser
 
 # ok, we're set
 set +e
 trap - ERR
 
-# TODO: make this generic for all apps that need to login and acquire cookies first
-if [ ! -f "$SECRETS_DIR/carwow_cookies.json" ]; then
-    echo "carwow_cookies.json not found, running initial login script..."
-    cd /app && python -m carwow_used_car_listing_parser.src.initial_login
+MODULE_PATH="${PARSER}_${PROJECT}_parser.src"
+
+if [[ -z "${NO_COOKIES+x}" ]]; then
+    if [[ -n "${PER_TASK_COOKIES+x}" ]]; then
+        if [[ ! -f "/run/secrets/${TASK}_cookies" ]]; then
+            echo "/run/secrets/${TASK}_cookies not found, running initial login script..."
+            cd /parsers && python -m ${MODULE_PATH}.initial_login
+        fi
+    else
+        if [[ ! -f "/run/secrets/parser_cookies" ]]; then
+            echo "/run/secrets/parser_cookies not found, running initial login script..."
+            cd /parsers && python -m ${MODULE_PATH}.initial_login
+        fi
+    fi
 fi
 
 
-echo "STARTING THE APP WITH DEBUGPY"
+echo "STARTING THE PARSER WITH DEBUGPY"
 
 # run in perpetual debug sessions
 # PYTHONFAULTHANDLER=1 is added since CPython can segfault because of quite unexpected issues
 # edit the last line to point to your app's entry point
+# SEARCH_URL_OVERRIDE is for when you want to override for a simple thing
 while true; do
-    cd /app && PYTHONFAULTHANDLER=1 python -Xfrozen_modules=off \
+    cd /parsers && PYTHONFAULTHANDLER=1 python -Xfrozen_modules=off \
     -m debugpy --listen 0.0.0.0:5678 --wait-for-client \
-    -m carwow_used_car_listing_parser.src.__main__ "$SEARCH_URL";
+    -m ${MODULE_PATH}.__main__;
 done
 
 # run without debugger
-# cd /app && python -m linkedin-job-postings-parser.src.__main__ "$SEARCH_URL"
+# cd /parsers && python -m ${MODULE_PATH}.__main__

@@ -23,12 +23,12 @@ class Base(DeclarativeBase):
     """Declarative base for every ORM class in this project."""
 
 
-PG_CREDENTIALS_FILENAME = "postgres.json"
+PG_CREDENTIALS_FILE = "postgres.json"
 
 
 def read_pg_credentials(secrets_dir: Path) -> tuple[str, str]:
     """Load Postgres user + password from ``secrets_dir/postgres.json``."""
-    creds_path = secrets_dir / PG_CREDENTIALS_FILENAME
+    creds_path = secrets_dir / PG_CREDENTIALS_FILE
     if not creds_path.is_file():
         raise FileNotFoundError(
             f"Postgres credentials file not found at {creds_path}. "

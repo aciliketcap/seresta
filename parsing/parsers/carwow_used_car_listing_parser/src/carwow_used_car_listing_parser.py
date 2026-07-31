@@ -9,7 +9,10 @@ from time import sleep # for sleeping random amounts of time between clicks
 
 logger = logging.getLogger(__name__)
 
-MAX_NEXT_PAGI_RETRIES= 3
+# TODO: this is per parser cookies file, move this down to serespar module once I figure out how to do per task cookies properly
+COOKIES_FILE = "/run/secrets/parser_cookies"
+
+MAX_NEXT_PAGI_RETRIES = 3
 NEW_PAGE_LOAD_WAIT_SECONDS = 6
 
 CARWOW_SEARCH_SELECTORS = {
@@ -89,7 +92,7 @@ class CarWowParseSession(BaseUsedCarListingParseSession):
                 logger.debug(f"moved to page {cur_page_num + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
                 sleep(NEW_PAGE_LOAD_WAIT_SECONDS)
                 self._page.wait_for_load_state()
-                # TODO: we need to check smt else to make sure SPA style new pagination content is loaded! Smt similar to 
+                # TODO: we need to check smt else to make sure SPA style new pagination content is loaded! Smt similar to the one in results_in_pagination
                 return True
         return False
 
