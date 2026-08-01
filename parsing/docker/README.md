@@ -37,3 +37,11 @@ rm -rf "dist/"
 ```
 docker run --rm -it -v $(pwd):/app -w /app playwright:localbuild-noble-20260113-v1.57.0 uv venv --python 3.9 && pip install -r local-requirements.txt && pytest
 ```
+
+# How to do development?
+Just edit and use [docker-compose.yml](docker-compose.yml). It uses base image but injects the code from the [app](../app) and [serespar](../serespar) dirs. Also includes a local postgres container for persistence.
+
+You also need to edit the [dev-script.sh](../app/dev-script.sh) slightly. Hopefully I'll put a more versatile version that doesn't require additional editing later.
+
+# How to build the prod images from base image?
+- It's still WIP. Same for prod docker-compose.yml or Terraform definitions.

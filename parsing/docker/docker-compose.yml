@@ -4,28 +4,54 @@ services:
     container_name: serespar
     ports:
       - "5678:5678"
+    env_file:
+      - ./../../dev-config/${PROJECT}/postgres.env
+      - ./../../dev-config/${PROJECT}/parsers/${PARSER}/parser.env
+      # create an empty default.env file if you don't need separate task configs
+      - ./../../dev-config/${PROJECT}/parsers/${PARSER}/${TASK:-default}.env
+    secrets:
+      - db_user
+      - db_password
+      - parser_cookies
     environment:
       - DISPLAY
-      - SEARCH_URL
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=postgres
-      - POSTGRES_SSLMODE=disable
+      - NO_COOKIES
+      - PER_TASK_COOKIES
+      - PROJECT
+      - PARSER
+      - ${TASK:-default}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ./../serespar:/opt/serespar
-      - ./../app/:/app
-    working_dir: /app/linkedin-job-postings-parser
-    command: /app/dev-script.sh
+      - ./../serespar/:/opt/serespar
+      - ./../parsers/dev-script.sh:/parsers/dev-script.sh
+      - ./../parsers/base_${PROJECT}_parser:/parsers/base_${PROJECT}_parser
+      - ./../parsers/${PARSER}_${PROJECT}_parser:/parsers/${PARSER}_${PROJECT}_parser
+    working_dir: /parsers/${PARSER}_${PROJECT}_parser
+    command: /parsers/dev-script.sh
     depends_on:
       - postgres
 
   postgres:
     image: postgres:17-alpine
     container_name: postgres
+    env_file:
+      - ./../../dev-config/${PROJECT}/postgres.env
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_USER_FILE: /run/secrets/db_user
+    secrets:
+      - db_user
+      - db_password
     volumes:
-      - ~/prj/serespar-data/2026-04-28_1/:/var/lib/postgresql/data
+      - ~/prj/serespar-data/${PROJECT}_latest/:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+
+secrets:
+  db_user:
+    file: ./../../dev-secrets/${PROJECT}/db_user.txt
+  db_password:
+    file: ./../../dev-secrets/${PROJECT}/db_password.txt
+  parser_cookies:
+    # TODO: we need a different method for per task cookies
+    file: ./../../dev-secrets/${PROJECT}/${PARSER}/cookies.json

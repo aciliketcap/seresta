@@ -1,0 +1,33 @@
+[project]
+name = "developer-ide-venv"
+version = "0.1.0"
+description = "We use this file to create a shallow and general venv which will only be used by the IDE so that it can understand the code. ie. to prevent 'Unknown class Playwright.something' type of errors in editor."
+requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "serespar",
+    "base_job_postings_parser",
+    "base_used_car_listing_parser"
+]
+
+[tool.uv.sources]
+serespar = { path = "../serespar", editable = true }
+base_job_postings_parser = { path = "base_job_postings_parser", editable = true }
+base_used_car_listing_parser = { path = "base_used_car_listing_parser", editable = true }
+
+[dependency-groups]
+local-ide-needs = [
+    "playwright>=1.58.0",
+]
+test-and-lint = [
+    "ruff",
+    "pytest",
+    "pytest-cov",
+    "ty>=0.0.34",
+    "mypy>=1.20.2",
+]
+dev = [
+    "debugpy>=1.8.20",
+]
