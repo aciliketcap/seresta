@@ -1,0 +1,17 @@
+services:
+  serespar:
+    image: playwright:localbuild-noble-20260113-v1.57.0
+    container_name: serespar
+    environment:
+      - DISPLAY
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./../serespar/:/opt/serespar
+    working_dir: /test
+    command: /test/run-test.sh
+    depends_on:
+      - nginx
+
+  nginx:
+    image: nginx:latest
+    
