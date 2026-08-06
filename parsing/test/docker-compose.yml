@@ -14,4 +14,10 @@ services:
 
   nginx:
     image: nginx:latest
-    
+    volumes:
+      - ./stub-site/:/usr/share/nginx/html:ro
+    ports:
+      # Not needed by the test (that goes over the compose network), but lets
+      # you open the stub at http://localhost:8080/ while debugging.
+      - "8080:80"
+

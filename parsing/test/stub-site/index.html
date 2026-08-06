@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>seresta test stub</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  #cards-table { border-collapse: collapse; }
+  #cards-table td { border: 1px solid #999; padding: .5rem .75rem; }
+  .card span { display: block; font-size: .9rem; }
+  /* Labels are CSS pseudo-elements on purpose: they render for a human
+     debugging the page but stay out of the DOM, so Playwright's
+     text_content()/inner_text() still return the bare values. */
+  .card-id::before    { content: "id: ";    color: #888; }
+  .card-name::before  { content: "name: ";  color: #888; }
+  .card-value::before { content: "value: "; color: #888; }
+  #pagi-list { margin-top: 1.5rem; }
+  #pagi-list a { margin-right: .75rem; }
+  #pagi-list a.current { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>seresta test stub</h1>
+<p id="page-info"></p>
+
+<table id="cards-table">
+  <tbody></tbody>
+</table>
+
+<!-- Fixed pagination, raw HTML. Real hrefs => full page reload per click. -->
+<nav id="pagi-list">
+  <a class="pagi-link" href="?page=1">1</a>
+  <a class="pagi-link" href="?page=2">2</a>
+  <a class="pagi-link" href="?page=3">3</a>
+  <a class="pagi-link" href="?page=4">4</a>
+  <a class="pagi-link" href="?page=5">5</a>
+</nav>
+
+<script>
+const ROWS = 4;
+const COLS = 5;
+
+// Preset per-page id ranges, inclusive. Edit these to introduce a short
+// last page or an empty page later.
+const PAGE_RANGES = [
+  { start:  1, end:  20 },
+  { start: 21, end:  40 },
+  { start: 41, end:  60 },
+  { start: 61, end:  80 },
+  { start: 81, end: 100 },
+];
+
+// 1 -> AAA, 2 -> AAB, ... 26 -> AAZ, 27 -> ABA, ...
+function cardName(id) {
+  const n = id - 1;
+  const A = "A".charCodeAt(0);
+  return String.fromCharCode(
+    A + Math.floor(n / 676) % 26,
+    A + Math.floor(n / 26) % 26,
+    A + n % 26,
+  );
+}
+
+function makeCard(id) {
+  return { id: id, name: cardName(id), value: id };
+}
+
+function currentPage() {
+  const raw = parseInt(new URLSearchParams(location.search).get("page"), 10);
+  return (raw >= 1 && raw <= PAGE_RANGES.length) ? raw : 1;
+}
+
+function cardsForPage(page) {
+  const { start, end } = PAGE_RANGES[page - 1];
+  const cards = [];
+  for (let id = start; id <= end; id++) cards.push(makeCard(id));
+  return cards;
+}
+
+function renderTable(cards) {
+  const tbody = document.querySelector("#cards-table tbody");
+  const rows = [];
+  for (let r = 0; r < ROWS; r++) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < COLS; c++) {
+      const card = cards[r * COLS + c];
+      if (!card) break;
+      const td = document.createElement("td");
+      td.className = "card";
+      td.innerHTML =
+        '<span class="card-id">' + card.id + '</span>' +
+        '<span class="card-name">' + card.name + '</span>' +
+        '<span class="card-value">' + card.value + '</span>';
+      tr.appendChild(td);
+    }
+    if (tr.childElementCount) rows.push(tr);
+  }
+  tbody.replaceChildren(...rows);
+}
+
+function markCurrentLink(page) {
+  document.querySelectorAll("#pagi-list .pagi-link").forEach(function (a) {
+    a.classList.toggle("current", a.textContent.trim() === String(page));
+  });
+}
+
+const page = currentPage();
+const cards = cardsForPage(page);
+renderTable(cards);
+markCurrentLink(page);
+document.querySelector("#page-info").textContent =
+  "page " + page + " of " + PAGE_RANGES.length +
+  " — ids " + cards[0].id + "–" + cards[cards.length - 1].id;
+</script>
+
+</body>
+</html>
