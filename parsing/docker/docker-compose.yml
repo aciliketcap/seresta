@@ -1,6 +1,6 @@
 services:
   serespar:
-    image: playwright:localbuild-noble-20260113-v1.57.0
+    image: playwright:localbuild-noble-20260730.1-v1.62.0
     container_name: serespar
     ports:
       - "5678:5678"

@@ -1,8 +1,8 @@
-FROM ubuntu:noble-20260113
+FROM ubuntu:noble-20260730.1
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG TZ=UTC
-ARG DOCKER_IMAGE_NAME_TEMPLATE="sinan/playwright/python:v1.57.0-noble-20260113"
+ARG DOCKER_IMAGE_NAME_TEMPLATE="sinan/playwright/python:v1.62.0-noble-20260730.1"
 
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8

@@ -1,4 +1,5 @@
 # TODO: this file is WIP and is not working at all!
+# TODO: also all versions and stuff are outdated
 
 # You need to make a local playwright python base image by following README.md
 FROM playwright:localbuild-noble-20260113-v1.57.0
