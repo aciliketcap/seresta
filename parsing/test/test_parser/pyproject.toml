@@ -15,6 +15,9 @@ test = [
     "pytest",
     "pytest-cov"
 ]
+test-dev = [
+    "debugpy"
+]
 
 [tool.uv.sources]
 serespar = { path = "/opt/serespar", editable = true }

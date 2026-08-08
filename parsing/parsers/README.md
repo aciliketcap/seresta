@@ -1,6 +1,6 @@
 # How to start developing an app?
 1. Follow the instructions on [docker/README.md](docker/README.md) and create a Docker container with playwright-python and chromium browser.
-2. In your terminal, go to `parsing/app` directory and create a venv with `uv sync --all-groups` there. In your IDE config, make it use `parsing/app/.venv` dir as Python environment. You may need to restart your IDE.
+2. In your terminal, go to `parsing/parsers` directory and create a venv with `uv sync --all-groups` there. In your IDE config, make it use `parsing/app/.venv` dir as Python environment. You may need to restart your IDE.
 3. Create your app project in a direcory in app, for example `my-app`. But do the following if you want to start a brand new app project:
     1. Create a pyproject.toml. You can copy [this pyproject.toml](app/linkedin-job-postings-parser/pyproject.toml). Critical part is the `[tool.uv.sources]` section.
     2. Create a `__main__.py` file. Subclass `ResultsParseSession`, fill in the abstract generator methods `paginations_in_search_results` and `results_in_pagination`. You don't need to fill them in immediately, it's probably a good idea to first see the web site in playwright browser first. Run your class which inherits from `ResultsParseSession` like below:

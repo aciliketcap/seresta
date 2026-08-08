@@ -1,23 +1,28 @@
 services:
   serespar:
-    image: playwright:localbuild-noble-20260113-v1.57.0
+    image: playwright:localbuild-noble-20260730.1-v1.62.0
     container_name: serespar
+    ports:
+      # only enable for further test development!
+      - "5678:5678"
     environment:
       - DISPLAY
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./../serespar/:/opt/serespar
-    working_dir: /test
-    command: /test/run-test.sh
+      - ./test_parser:/test_parser
+      - ./../docker/init.sh:/init.sh
+      - ./run_test_task.sh:/test_parser/task.sh
+    working_dir: /test_parser
+    command: /init.sh
     depends_on:
       - nginx
 
   nginx:
     image: nginx:latest
     volumes:
-      - ./stub-site/:/usr/share/nginx/html:ro
+      - ./stub-sites/:/usr/share/nginx/html:ro
     ports:
-      # Not needed by the test (that goes over the compose network), but lets
-      # you open the stub at http://localhost:8080/ while debugging.
+      # only enable for further test development!
       - "8080:80"
 

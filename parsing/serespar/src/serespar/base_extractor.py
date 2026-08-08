@@ -32,7 +32,7 @@ class BaseExtractor[RepoT, SeresT]:
     """
     def __init__(
         self,
-        repo,
+        repo: RepoT,
         page: Page,
         item: Locator,
         ctx: ParseItemContext
