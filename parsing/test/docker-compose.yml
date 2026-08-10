@@ -2,15 +2,16 @@ services:
   serespar:
     image: playwright:localbuild-noble-20260730.1-v1.62.0
     container_name: serespar
-    ports:
+    # ports:
       # only enable for further test development!
-      - "5678:5678"
+      # - "5678:5678"
     environment:
       - DISPLAY
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./../serespar/:/opt/serespar
       - ./test_parser:/test_parser
+      - ./ci_reports:/reports
       - ./../docker/init.sh:/init.sh
       - ./run_test_task.sh:/test_parser/task.sh
     working_dir: /test_parser
@@ -22,7 +23,7 @@ services:
     image: nginx:latest
     volumes:
       - ./stub-sites/:/usr/share/nginx/html:ro
-    ports:
+    # ports:
       # only enable for further test development!
-      - "8080:80"
+      # - "8080:80"
 

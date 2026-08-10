@@ -6,9 +6,10 @@ dist/
 wheels/
 *.egg-info
 
-# Test and coverage
+# Test results and CI
 .pytest_cache
 .coverage
+ci_reports
 
 # Virtual environments
 .venv
@@ -22,3 +23,4 @@ wheels/
 
 # Project related
 dev-secrets
+

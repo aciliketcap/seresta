@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from string import ascii_uppercase
 from itertools import product
+from time import sleep
 
 from serespar.base_repos import AbstractBaseRepository
 
@@ -133,6 +134,9 @@ NAME_PERMS = ["".join(perm) for perm in product(ascii_uppercase, repeat=3)][0:10
 CARDS_PER_PAGE = 20
 
 def test_integ() -> None:
+    # magic sleep until nginx is actually up and serving our test .html file
+    sleep(3)
+
     with TestParseSession("http://nginx/index.html", None) as session:
         repo = TestRepo()
         for cur_pagi_num in session.paginations_in_search_results(5):
