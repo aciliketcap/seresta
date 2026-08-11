@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 import json
 from pathlib import Path
@@ -12,6 +13,21 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_VIEWPORT_WIDTH = 1600
 DEFAULT_VIEWPORT_HEIGHT = 1000
+
+# Set this to ask for a visible browser window. Task definitions own it:
+# dev-task.sh exports it, and the test task leaves it to the caller
+# (`SERESPAR_HEADED=1 podman compose up`).
+HEADED_ENV_VAR = "SERESPAR_HEADED"
+TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def headed_from_env() -> bool:
+    """Whether the environment is asking for a visible browser window.
+
+    Anything other than a truthy value -- unset, empty, "0" -- means headless,
+    so a session works on a machine with no X display unless told otherwise.
+    """
+    return os.environ.get(HEADED_ENV_VAR, "").strip().lower() in TRUTHY_ENV_VALUES
 
 
 class ResultsParseSession():
@@ -35,14 +51,20 @@ class ResultsParseSession():
     _page: Page # playwright page object
     _cookie_path: Path | str | None
     _initial_search_page_url: str
+    _headless: bool
     num_failed_results: int
 
     def __init__(
             self,
             target: str,
-            cookie_path: str | None = None) -> None:
+            cookie_path: str | None = None,
+            headless: bool | None = None) -> None:
+        """`headless=None` reads the mode from `SERESPAR_HEADED`, which is how
+        task definitions drive it. Pass a bool only to pin the mode in code,
+        regardless of the environment."""
         self._cookie_path = cookie_path
         self._initial_search_page_url = target
+        self._headless = not headed_from_env() if headless is None else headless
         # TODO: make these readable from a config
         # TODO: can we make this a prop which can be set in real time?
         self._view_port = ViewportSize(width=DEFAULT_VIEWPORT_WIDTH, height=DEFAULT_VIEWPORT_HEIGHT)
@@ -55,8 +77,9 @@ class ResultsParseSession():
         self._pw_ctx = sync_playwright()
         pw = self._pw_ctx.__enter__()
 
-        # TODO: headless, viewport size etc. needs to be passed from a config to here
-        self._browser = pw.chromium.launch(headless=False)
+        # TODO: viewport size etc. needs to be passed from a config to here
+        logger.info(f"Launching chromium {'headless' if self._headless else 'headed'}")
+        self._browser = pw.chromium.launch(headless=self._headless)
         context = self._browser.new_context(
             viewport=self._view_port
         )

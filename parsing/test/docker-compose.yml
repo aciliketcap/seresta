@@ -7,6 +7,8 @@ services:
       # - "5678:5678"
     environment:
       - DISPLAY
+      # unset on the host means headless, which is what CI wants
+      - SERESPAR_HEADED
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./../serespar/:/opt/serespar

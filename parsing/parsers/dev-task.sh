@@ -1,6 +1,11 @@
 MODULE_PATH="${PARSER}_${PROJECT}_parser.src"
 
 task() {
+    # Dev sessions are for watching the parser work, so always show the window.
+    # Deliberately not overridable: this task is useless without a browser to
+    # look at. Unset it here if you ever need a headless dev run.
+    export SERESPAR_HEADED=1
+
     if [[ -z "${NO_COOKIES+x}" ]]; then
         if [[ -n "${PER_TASK_COOKIES+x}" ]]; then
             if [[ ! -f "/run/secrets/${TASK}_cookies" ]]; then
