@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>seresta test stub — extraction defects</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  #cards-table { border-collapse: collapse; }
+  #cards-table td { border: 1px solid #999; padding: .5rem .75rem; vertical-align: top; }
+  .card span { display: block; font-size: .9rem; }
+  .card::after { content: attr(data-defect); display: block;
+                 margin-top: .4rem; font-size: .75rem; color: #b00; }
+</style>
+</head>
+<body>
+
+<h1>seresta extraction defects</h1>
+<p>
+  Deliberately malformed cards, one defect each, for the negative tests against
+  <code>serespar/base_extractor.py</code>. Select a card by its defect name:
+  <code>td.card[data-defect="empty-id"]</code>.
+</p>
+<p>
+  Intentionally static HTML with no JavaScript — lazy loading is exercised by
+  <code>index.html</code>, this page is only about extraction failures.
+</p>
+
+<table id="cards-table">
+<tbody>
+<tr>
+
+<!-- Control: everything valid. -->
+<td class="card" data-defect="ok"><span class="card-id">1</span><span class="card-name">AAA</span><span class="card-value">1</span></td>
+
+<!-- Element present but empty => text_content() == "" => falsy => ParsingError. -->
+<td class="card" data-defect="empty-id"><span class="card-id"></span><span class="card-name">AAB</span><span class="card-value">2</span></td>
+
+<!-- Whitespace-only is truthy, so it slips past the check and strips to "".
+     Documents current behaviour rather than asserting it is correct. -->
+<td class="card" data-defect="whitespace-name"><span class="card-id">3</span><span class="card-name">   </span><span class="card-value">3</span></td>
+
+<!-- No .card-value at all => locator never resolves => Playwright TimeoutError,
+     NOT ParsingError. -->
+<td class="card" data-defect="missing-value"><span class="card-id">4</span><span class="card-name">AAD</span></td>
+
+<!-- Text is fine, int() is what blows up. -->
+<td class="card" data-defect="nan-id"><span class="card-id">not-a-number</span><span class="card-name">AAE</span><span class="card-value">5</span></td>
+
+<!-- Two matches; text_at_selector uses .first, so this reads 11 not 22. -->
+<td class="card" data-defect="duplicate-id"><span class="card-id">11</span><span class="card-id">22</span><span class="card-name">AAF</span><span class="card-value">6</span></td>
+
+</tr>
+<tr>
+
+<!-- Link controls / failures for try_href_attr. -->
+<td class="card" data-defect="link-ok"><a class="card-link" href="https://example.com/cards/7">card 7</a><span class="card-id">7</span><span class="card-name">AAG</span><span class="card-value">7</span></td>
+
+<td class="card" data-defect="link-no-href"><a class="card-link">card 8</a><span class="card-id">8</span><span class="card-name">AAH</span><span class="card-value">8</span></td>
+
+<td class="card" data-defect="link-empty-href"><a class="card-link" href="">card 9</a><span class="card-id">9</span><span class="card-name">AAI</span><span class="card-value">9</span></td>
+
+<!-- Relative href: pydantic Url rejects it unless a base_url is prepended. -->
+<td class="card" data-defect="link-relative"><a class="card-link" href="/cards/10">card 10</a><span class="card-id">10</span><span class="card-name">AAJ</span><span class="card-value">10</span></td>
+
+</tr>
+</tbody>
+</table>
+
+</body>
+</html>

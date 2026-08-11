@@ -12,30 +12,29 @@ I couldn't find a Python based playwright image from Microsoft. The one they pro
 ```
 git clone git@github.com:microsoft/playwright-python.git
 cd playwright-python
-git checkout v1.57.0
+git checkout v1.62.0
 ```
-2. Build playwright and browsers via a venv (I use Python 3.9 since the docs say so)
+2. Build playwright and browsers via a venv
 ```
-uv venv --python 3.9
+uv venv --python 3.14
 source .venv/bin/activate
 uv pip install -r local-requirements.txt
 uv pip install -e .
 PLAYWRIGHT_TARGET_WHEEL=manylinux1_x86_64.whl python -m build --wheel
 ```
-
-3. Copy the [Dockerfile.Dockerfile.my_py_pw_base_image](/docker/Dockerfile.my_py_pw_base_image) from this repo into `utils/docker/`
+3. Copy the [Dockerfile.Dockerfile.my_py_pw_base_image](./Dockerfile.py_pw_base_image) from this repo into `utils/docker/`
 
 4. Build our base image as follows: (copied from `utils/docker/build.sh`)
 ```
 cd utils/docker
 mkdir dist/
 cp ../../dist/*-manylinux*.whl dist/
-docker build --platform "linux/amd64" -t "playwright:localbuild-noble-20260113-v1.57.0" -f "Dockerfile.my_py_pw_base_image" .
+docker build --platform "linux/amd64" -t "playwright:localbuild-noble-20260730.1-v1.62.0" -f "Dockerfile.py_pw_base_image" .
 rm -rf "dist/"
 ```
-5. Optionally you can run tests (with python 3.9) to see if the playwright inside the base image is working properly. However all tests will fail for browsers other than chromium.
+5. Optionally you can run tests to see if the playwright inside the base image is working properly. However all tests will fail for browsers other than chromium.
 ```
-docker run --rm -it -v $(pwd):/app -w /app playwright:localbuild-noble-20260113-v1.57.0 uv venv --python 3.9 && pip install -r local-requirements.txt && pytest
+docker run --rm -it -v $(pwd):/app -w /app playwright:localbuild-noble-20260730.1-v1.62.0 uv venv --python 3.14 && pip install -r local-requirements.txt && pytest
 ```
 
 # How to do development?

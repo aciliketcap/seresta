@@ -4,7 +4,7 @@
     "configurations": [
 
         {
-            "name": "Python Debugger: Remote Attach",
+            "name": "Parser Dev",
             "type": "debugpy",
             "request": "attach",
             "connect": {
@@ -13,11 +13,30 @@
             },
             "pathMappings": [
                 {
-                    "localRoot": "${workspaceFolder}/parsing/app/",
-                    "remoteRoot": "/app/"
+                    "localRoot": "${workspaceFolder}/parsing/parsers",
+                    "remoteRoot": "/parsers"
                 },
                 {
-                    "localRoot": "${workspaceFolder}/serespar",
+                    "localRoot": "${workspaceFolder}/parsing/serespar/src/serespar",
+                    "remoteRoot": "serespar"
+                }
+            ]
+        },
+        {
+            "name": "Test Dev",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}/parsing/test/test_parser",
+                    "remoteRoot": "/test_parser"
+                },
+                {
+                    "localRoot": "${workspaceFolder}/parsing/serespar/src/serespar",
                     "remoteRoot": "serespar"
                 }
             ]

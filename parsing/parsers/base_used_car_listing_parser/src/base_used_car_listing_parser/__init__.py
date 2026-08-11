@@ -17,8 +17,6 @@ __all__ = [
     "AbstractBaseRawUsedCarListingRepository",
     "Base",
     "BaseUsedCarListingParseSession",
-    "UsedCarListingExtractionError",
-    "UsedCarListingExtractor",
     "BaseRawUsedCarListing",
     "BaseRawUsedCarListingORM",
     "BaseRawUsedCarListingSqlAlchemyRepository",

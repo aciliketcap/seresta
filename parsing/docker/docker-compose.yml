@@ -1,6 +1,6 @@
 services:
   serespar:
-    image: playwright:localbuild-noble-20260113-v1.57.0
+    image: playwright:localbuild-noble-20260730.1-v1.62.0
     container_name: serespar
     ports:
       - "5678:5678"
@@ -22,12 +22,13 @@ services:
       - ${TASK:-default}
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./init.sh:/init.sh
       - ./../serespar/:/opt/serespar
-      - ./../parsers/dev-script.sh:/parsers/dev-script.sh
+      - ./../parsers/dev-task.sh://parsers/${PARSER}_${PROJECT}_parser/task.sh
       - ./../parsers/base_${PROJECT}_parser:/parsers/base_${PROJECT}_parser
       - ./../parsers/${PARSER}_${PROJECT}_parser:/parsers/${PARSER}_${PROJECT}_parser
     working_dir: /parsers/${PARSER}_${PROJECT}_parser
-    command: /parsers/dev-script.sh
+    command: /init.sh
     depends_on:
       - postgres
 

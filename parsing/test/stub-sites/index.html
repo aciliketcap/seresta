@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>seresta test stub — lazy loading</title>
+<style>
+  body { font-family: sans-serif; margin: 2rem; }
+  #cards-table { border-collapse: collapse; }
+  /* Cells are deliberately tall: 4 rows do not fit in the 1000px test
+     viewport, so the lower rows genuinely require scroll_into_view_if_needed()
+     before their IntersectionObserver fires. */
+  #cards-table td { border: 1px solid #999; padding: .5rem .75rem;
+                    width: 240px; height: 300px; vertical-align: top; }
+  .card span { display: block; font-size: .9rem; }
+  .card--placeholder { background: repeating-linear-gradient(
+      45deg, #f4f4f4, #f4f4f4 10px, #ebebeb 10px, #ebebeb 20px); }
+  /* Labels are CSS pseudo-elements on purpose: they render for a human
+     debugging the page but stay out of the DOM, so Playwright's
+     text_content()/inner_text() still return the bare values. */
+  .card-id::before    { content: "id: ";    color: #888; }
+  .card-name::before  { content: "name: ";  color: #888; }
+  .card-value::before { content: "value: "; color: #888; }
+  #pagi-list { margin-top: 1.5rem; }
+  #pagi-list a { margin-right: .75rem; }
+  #pagi-list a.current { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>seresta test stub</h1>
+<p id="page-info"></p>
+
+<!-- #cards-table does NOT exist at load. It is inserted after TABLE_DELAY_MS,
+     initially as placeholder cells with no content; each cell fills in only
+     once it scrolls into view. This mirrors carwow, where the turbo-frame
+     locators exist but their contents arrive lazily. -->
+<div id="cards-loading">Loading results&hellip;</div>
+
+<!-- Fixed pagination, raw HTML. Real hrefs => full page reload per click. -->
+<nav id="pagi-list">
+  <a class="pagi-link" href="?page=1">1</a>
+  <a class="pagi-link" href="?page=2">2</a>
+  <a class="pagi-link" href="?page=3">3</a>
+  <a class="pagi-link" href="?page=4">4</a>
+  <a class="pagi-link" href="?page=5">5</a>
+</nav>
+
+<script>
+const ROWS = 4;
+const COLS = 5;
+
+// Lazy-load timings. Both are well under Playwright's default timeout, so a
+// correctly-waiting parser always wins and a non-waiting one always loses.
+const TABLE_DELAY_MS = 400;  // until the table skeleton is attached
+const CELL_DELAY_MS  = 250;  // until a cell fills in, after it becomes visible
+
+// Preset per-page id ranges, inclusive. Edit these to introduce a short
+// last page or an empty page later.
+const PAGE_RANGES = [
+  { start:  1, end:  20 },
+  { start: 21, end:  40 },
+  { start: 41, end:  60 },
+  { start: 61, end:  80 },
+  { start: 81, end: 100 },
+];
+
+// 1 -> AAA, 2 -> AAB, ... 26 -> AAZ, 27 -> ABA, ...
+function cardName(id) {
+  const n = id - 1;
+  const A = "A".charCodeAt(0);
+  return String.fromCharCode(
+    A + Math.floor(n / 676) % 26,
+    A + Math.floor(n / 26) % 26,
+    A + n % 26,
+  );
+}
+
+function makeCard(id) {
+  return { id: id, name: cardName(id), value: id };
+}
+
+function currentPage() {
+  const raw = parseInt(new URLSearchParams(location.search).get("page"), 10);
+  return (raw >= 1 && raw <= PAGE_RANGES.length) ? raw : 1;
+}
+
+function cardsForPage(page) {
+  const { start, end } = PAGE_RANGES[page - 1];
+  const cards = [];
+  for (let id = start; id <= end; id++) cards.push(makeCard(id));
+  return cards;
+}
+
+// Empty cells, in final position. Locators resolve immediately; content doesn't.
+function buildSkeleton(cards) {
+  const table = document.createElement("table");
+  table.id = "cards-table";
+  const tbody = document.createElement("tbody");
+  for (let r = 0; r < ROWS; r++) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < COLS; c++) {
+      const ix = r * COLS + c;
+      if (!cards[ix]) break;
+      const td = document.createElement("td");
+      td.className = "card card--placeholder";
+      td.dataset.cardSlot = String(ix);
+      tr.appendChild(td);
+    }
+    if (tr.childElementCount) tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function fillCell(td, card) {
+  td.innerHTML =
+    '<span class="card-id">' + card.id + '</span>' +
+    '<span class="card-name">' + card.name + '</span>' +
+    '<span class="card-value">' + card.value + '</span>';
+  td.classList.remove("card--placeholder");
+  // The signal a waiting parser should key off of.
+  td.dataset.loaded = "true";
+}
+
+function markCurrentLink(page) {
+  document.querySelectorAll("#pagi-list .pagi-link").forEach(function (a) {
+    a.classList.toggle("current", a.textContent.trim() === String(page));
+  });
+}
+
+const page = currentPage();
+const cards = cardsForPage(page);
+markCurrentLink(page);
+document.querySelector("#page-info").textContent =
+  "page " + page + " of " + PAGE_RANGES.length +
+  " — ids " + cards[0].id + "–" + cards[cards.length - 1].id;
+
+setTimeout(function () {
+  const table = buildSkeleton(cards);
+  document.querySelector("#cards-loading").replaceWith(table);
+
+  const observer = new IntersectionObserver(function (entries, obs) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      const td = entry.target;
+      obs.unobserve(td);
+      setTimeout(function () {
+        fillCell(td, cards[Number(td.dataset.cardSlot)]);
+      }, CELL_DELAY_MS);
+    });
+  });
+
+  table.querySelectorAll("td.card").forEach(function (td) {
+    observer.observe(td);
+  });
+}, TABLE_DELAY_MS);
+</script>
+
+</body>
+</html>

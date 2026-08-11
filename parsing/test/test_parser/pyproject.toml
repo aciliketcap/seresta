@@ -1,0 +1,23 @@
+[project]
+name = "test_parser"
+version = "0.1.0"
+description = "Test parser to test base serespar"
+readme = "README.md"
+requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3",
+    "serespar"
+]
+
+[dependency-groups]
+test = [
+    "ruff",
+    "pytest",
+    "pytest-cov"
+]
+test-dev = [
+    "debugpy"
+]
+
+[tool.uv.sources]
+serespar = { path = "/opt/serespar", editable = true }
