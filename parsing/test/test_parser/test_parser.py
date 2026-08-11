@@ -27,15 +27,13 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from pydantic_core import Url
 
 from serespar import (
+    AbstractBaseRepository,
     BaseExtractor,
     ExtractionCriticalError,
     ParseItemContext,
+    ParsingError,
     ResultsParseSession,
 )
-# NOTE: ParsingError is not re-exported from serespar/__init__.py, unlike
-# ExtractionCriticalError. Worth adding to __all__.
-from serespar.base_extractor import ParsingError
-from serespar.base_repos import AbstractBaseRepository
 
 logger = logging.getLogger(__name__)
 

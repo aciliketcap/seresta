@@ -1,3 +1,5 @@
+TODO: this file needs to be edited to reflect latest status. Also a separate doc (and preferably accompanying Ansible playbook) is needed about CI and infra side.
+
 # Project structure
 This directory contains a library and apps that use (ie. depend on) that library.
 
@@ -24,7 +26,7 @@ Note that we use the `--system-site-packages` because the playwright system depe
 # `app/my-app/pyproject.toml` file:
 This is the file [app/dev-script.sh](app/dev-script.sh) uses to create the .venv for your app project.
 
-1. Since werely on the playwright browser inside the container image's system directories dev-script creates this environment with `--system-site-packages --no-managed-python` parameters.
+1. Since we rely on the playwright browser inside the container image's system directories dev-script creates this environment with `--system-site-packages --no-managed-python` parameters.
 2. Since the .venv is created from within the docker container and relies on the system python inside, you shouldn't use that .venv for your IDE. You should instead go to `app` and use [the pyproject.toml there](app/pyproject.toml) to create a .venv and set that one as your Python interpreter in your IDE.
   - Also directories in the project structure and inside container image are different and [you can't quite manage it in uv yet](https://stackoverflow.com/questions/79471982/uv-index-and-path-for-the-same-dependency-in-one-pyproject-toml-file).
 
