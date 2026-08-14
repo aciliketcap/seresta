@@ -12,7 +12,7 @@ from base_job_postings_parser import (
     seed_sources,
 )
 
-from .linkedin_jobs_parser import LinkedInJobsParseSession
+from .linkedin_jobs_parser import LinkedInJobsParsingSession
 from .linkedin_repos import LinkedInRawJobPostingSqlAlchemyRepository
 from .linkedin_job_extractor import LinkedInJobPostingExtractor
 
@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
 secrets_dir = Path(os.environ["SECRETS_DIR"])
-MAX_PAGI_DEPTH = int(os.environ.get("MAX_PAGI_DEPTH", 5))
+MAX_DEPTH = int(os.environ.get("MAX_DEPTH", 5))
 
-parser = argparse.ArgumentParser(description='Traverse job search results in given URL')
-parser.add_argument('url', help='URL of the job search')
-parser.add_argument('-c', '--cookies-file-path',
+parser = argparse.ArgumentParser(description='Traverse search results at the given OriginUrl')
+parser.add_argument('origin_url', help='OriginUrl of the search')
+parser.add_argument('-a', '--auth-material-path',
     default=secrets_dir/"linkedin_cookies.json",
-    help='Path of the auth cookies file')
+    help='Path of the AuthMaterial (cookies) file')
 opts = parser.parse_args()
 
 engine = build_engine_from_env(secrets_dir)
@@ -35,16 +35,18 @@ init_schema(engine)
 sm = make_sessionmaker(engine)
 seed_sources(sm)
 
-repo = LinkedInRawJobPostingSqlAlchemyRepository(sm)
-extractor = LinkedInJobPostingExtractor(repo)
+# The persistence layer this session drains into: the glossary's `DataSink`.
+# TODO: heading into `ParsingSession` itself in the architecture refactor.
+data_sink = LinkedInRawJobPostingSqlAlchemyRepository(sm)
+extractor = LinkedInJobPostingExtractor(data_sink)
 
-with LinkedInJobsParseSession(opts.url, sm, opts.cookies_file_path) as session:
-    logger.debug("Inside the session ctx!")
+with LinkedInJobsParsingSession(opts.origin_url, sm, opts.auth_material_path) as session:
+    logger.debug("Inside the session context manager!")
 
-    for cur_pagi_num in session.paginations_in_search_results(MAX_PAGI_DEPTH):
-        logger.debug(f"Currently on page {cur_pagi_num} of search results.")
-        for result_tuple in session.results_in_pagination():
+    for pagination_index in session.pagination_batches(MAX_DEPTH):
+        logger.debug(f"Currently on pagination batch {pagination_index} of search results.")
+        for result_tuple in session.results_in_pagination_batch():
             page, job_card = result_tuple
-            extractor.extract_and_persist(page, job_card, session.parse_session_id)
+            extractor.extract_and_persist(page, job_card, session.parsing_session_id)
             logger.info("Found another job ad!")
             

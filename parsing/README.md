@@ -3,6 +3,8 @@ TODO: this file needs to be edited to reflect latest status. Also a separate doc
 # Project structure
 This directory contains a library and apps that use (ie. depend on) that library.
 
+The vocabulary the library and the apps are named after lives in [docs/glossary.md](docs/glossary.md).
+
 Also this library and apps can't be run with mere uv .venv's. Well technically they can but you playwright library depends on it's own browsers and stuff. Not only they're bulky (and we don't need most of them) but also they have their own dependencies which needs to be installed on your own system.
 
 Therefore I have opted to minimize and keep all playwright-python dependencies in a separate Docker image. I run my code inside Docker containers during the development phase as well.

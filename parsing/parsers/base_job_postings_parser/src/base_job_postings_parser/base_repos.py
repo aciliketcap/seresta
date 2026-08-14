@@ -39,14 +39,14 @@ class Source(IntEnum):
     LINKEDIN = 1
 
 
-# Seed data for the `source` table: enum member -> (name, search_url, description).
+# Seed data for the `source` table: enum member -> (name, origin_url, description).
 # "Seed" = static reference data the app requires at runtime (FK targets for
-# `parse_session.source` and polymorphic identities for the joined-table
+# `parsing_session.source` and polymorphic identities for the joined-table
 # inheritance), not rows users ever create. Normally this would live in a data
 # migration; we apply it at startup via `seed_sources()` because we don't have
 # migrations set up yet. TODO: move into a data migration once migrations land.
 # Note: a single website can be listed as several `source` rows with different
-# search URLs (e.g. different saved searches/filters). Only `name` is unique, so
+# origin URLs (e.g. different saved searches/filters). Only `name` is unique, so
 # such variants must each get their own distinct enum member + name.
 SOURCE_SEED: dict[Source, tuple[str, str, str]] = {
     Source.LINKEDIN: (
@@ -61,7 +61,7 @@ class SourceORM(Base):
     """A website we scrape job postings from.
 
     The same physical website may appear as multiple rows here with different
-    ``search_url`` values (different saved searches/filters); ``name`` is the
+    ``origin_url`` values (different saved searches/filters); ``name`` is the
     unique key and corresponds to a member of the :class:`Source` enum.
     """
 
@@ -70,14 +70,19 @@ class SourceORM(Base):
     # id is only used for joining; it is seeded from the Source enum.
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    search_url: Mapped[str] = mapped_column(String, nullable=False)
+    origin_url: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class ParseSessionORM(Base):
-    """One scraping run ("search session") against a single source."""
+class ParsingSessionORM(Base):
+    """One `ParsingSession` run against a single source.
 
-    __tablename__ = "parse_session"
+    The row is the identity of the session, and its start/end dates are the
+    beginnings of the session's `SessionReport`. See the `SessionReport` entry
+    in ``parsing/docs/glossary.md``.
+    """
+
+    __tablename__ = "parsing_session"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
@@ -87,17 +92,17 @@ class ParseSessionORM(Base):
     )
 
 
-class SearchResultInParseSessionORM(Base):
-    """Joining table: a search result that was found in a parse session."""
+class ParsedEntityInParsingSessionORM(Base):
+    """Joining table: a parsed entity that was found in a parsing session."""
 
-    __tablename__ = "search_result_in_parse_session"
+    __tablename__ = "parsed_entity_in_parsing_session"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    search_result_id: Mapped[int] = mapped_column(
+    parsed_entity_id: Mapped[int] = mapped_column(
         ForeignKey("raw_job_posting.id", ondelete="CASCADE"), nullable=False
     )
-    parse_session_id: Mapped[int] = mapped_column(
-        ForeignKey("parse_session.id"), nullable=False
+    parsing_session_id: Mapped[int] = mapped_column(
+        ForeignKey("parsing_session.id"), nullable=False
     )
 
 
@@ -110,10 +115,10 @@ class BaseRawJobPosting(BaseModel):
     # Typed as ``Source`` (an IntEnum), not ``int``, so pydantic rejects
     # values that don't correspond to a seeded source row at construction time.
     source: Source = Field(description="FK to the source table (see Source enum)")
-    seres_id: str = Field(description="Search Result Id: the posting's own id within the source website")
+    result_id: str = Field(description="The posting's own id within the source website")
     last_found_in: int | None = Field(
         default=None,
-        description="FK to the parse session in which this posting was last found",
+        description="FK to the parsing session in which this posting was last found",
     )
     url: Url = Field(description="The URL of the job posting")
     title: str = Field(description="The title of the job posting")
@@ -127,17 +132,17 @@ class BaseRawJobPostingORM(Base):
 
     __tablename__ = "raw_job_posting"
 
-    # seres_id is unique within a source (the discriminator column), so the same
+    # result_id is unique within a source (the discriminator column), so the same
     # posting id appearing on two different sources doesn't collide.
     __table_args__ = (
-        UniqueConstraint("source", "seres_id", name="uq_raw_job_posting_source_seres_id"),
+        UniqueConstraint("source", "result_id", name="uq_raw_job_posting_source_result_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source: Mapped[int] = mapped_column(ForeignKey("source.id"), nullable=False)
-    seres_id: Mapped[str] = mapped_column(String, nullable=False)
+    result_id: Mapped[str] = mapped_column(String, nullable=False)
     last_found_in: Mapped[int | None] = mapped_column(
-        ForeignKey("parse_session.id"), nullable=True
+        ForeignKey("parsing_session.id"), nullable=True
     )
     url: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
@@ -177,22 +182,22 @@ class BaseRawJobPostingSqlAlchemyRepository(AbstractBaseRawJobPostingRepository)
 
     def add(self, job_posting: BaseRawJobPosting) -> None:
         # One transaction for the dedup check + insert + join-row write, so
-        # there's no TOCTOU window between "is this seres_id already there?"
+        # there's no TOCTOU window between "is this result_id already there?"
         # and the insert.
         # A polymorphic query on the concrete ORM only matches rows of this
-        # source, so checking seres_id here is effectively per-source.
+        # source, so checking result_id here is effectively per-source.
         with self._sm.begin() as session:
             existing = session.scalar(
-                select(self.ORM).where(self.ORM.seres_id == job_posting.seres_id)
+                select(self.ORM).where(self.ORM.result_id == job_posting.result_id)
             )
             if existing is not None:
                 # TODO: when a posting already exists we should update its
-                # last_found_in and link it to the current parse session. For now
+                # last_found_in and link it to the current parsing session. For now
                 # we just log the situation and move on to the next result.
                 logger.info(
-                    "Job posting seres_id=%s from source=%s already exists "
+                    "Job posting result_id=%s from source=%s already exists "
                     "(id=%s); skipping (dedup handling not implemented yet).",
-                    job_posting.seres_id,
+                    job_posting.result_id,
                     job_posting.source,
                     existing.id,
                 )
@@ -205,9 +210,9 @@ class BaseRawJobPostingSqlAlchemyRepository(AbstractBaseRawJobPostingRepository)
             session.flush()  # populate orm.id for the joining-table row
             if job_posting.last_found_in is not None:
                 session.add(
-                    SearchResultInParseSessionORM(
-                        search_result_id=orm.id,
-                        parse_session_id=job_posting.last_found_in,
+                    ParsedEntityInParsingSessionORM(
+                        parsed_entity_id=orm.id,
+                        parsing_session_id=job_posting.last_found_in,
                     )
                 )
 
@@ -226,26 +231,31 @@ class BaseRawJobPostingSqlAlchemyRepository(AbstractBaseRawJobPostingRepository)
             return [self.PYDANTIC.model_validate(r) for r in rows]  # type: ignore[misc]
 
 
-class ParseSessionRepository:
-    """Creates and closes ``parse_session`` rows."""
+class SessionReportRepository:
+    """Creates and closes the ``parsing_session`` row of the current run.
+
+    Its start and end dates are the beginnings of the session's `SessionReport`;
+    see that entry in ``parsing/docs/glossary.md``. Not to be confused with the
+    glossary's `SessionRepository`, which is where the extracted entities go.
+    """
 
     def __init__(self, sm: sessionmaker[Session]) -> None:
         self._sm = sm
 
     def start(self, source_id: int) -> int:
-        """Open a parse session with a start date and return its new id."""
+        """Open a parsing session with a start date and return its new id."""
         with self._sm.begin() as session:
-            parse_session = ParseSessionORM(start_date=datetime.now(), source=source_id)
-            session.add(parse_session)
+            parsing_session = ParsingSessionORM(start_date=datetime.now(), source=source_id)
+            session.add(parsing_session)
             session.flush()
-            return parse_session.id
+            return parsing_session.id
 
-    def end(self, parse_session_id: int) -> None:
-        """Stamp the end date on an open parse session."""
+    def end(self, parsing_session_id: int) -> None:
+        """Stamp the end date on an open parsing session."""
         with self._sm.begin() as session:
-            parse_session = session.get(ParseSessionORM, parse_session_id)
-            if parse_session is not None:
-                parse_session.end_date = datetime.now()
+            parsing_session = session.get(ParsingSessionORM, parsing_session_id)
+            if parsing_session is not None:
+                parsing_session.end_date = datetime.now()
 
 
 def seed_sources(sm: sessionmaker[Session]) -> None:
@@ -254,12 +264,12 @@ def seed_sources(sm: sessionmaker[Session]) -> None:
         for source in Source:
             if session.get(SourceORM, int(source)) is not None:
                 continue
-            name, search_url, description = SOURCE_SEED[source]
+            name, origin_url, description = SOURCE_SEED[source]
             session.add(
                 SourceORM(
                     id=int(source),
                     name=name,
-                    search_url=search_url,
+                    origin_url=origin_url,
                     description=description,
                 )
             )

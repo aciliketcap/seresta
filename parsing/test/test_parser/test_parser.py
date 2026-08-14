@@ -30,9 +30,9 @@ from serespar import (
     AbstractBaseRepository,
     BaseExtractor,
     ExtractionCriticalError,
-    ParseItemContext,
+    SessionTracker,
     ParsingError,
-    ResultsParseSession,
+    ParsingSession,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,12 +42,13 @@ STUB_DEFECTS_URL = "http://nginx/defects.html"
 
 CARDS_TABLE = "#cards-table"
 CARD_CELLS = "#cards-table td.card"
-PAGI_LIST = "#pagi-list"
+PAGINATION_LIST = "#pagi-list"
 
-CARDS_PER_PAGE = 20
-NUM_PAGES = 5
+CARDS_PER_BATCH = 20
+NUM_PAGINATION_BATCHES = 5
 
 # Comfortably above the stub's own TABLE_DELAY_MS / CELL_DELAY_MS.
+# TABLE_ is what a `PageSyncBarrier` would wait on, CELL_ a `ResultSyncBarrier`.
 TABLE_LOAD_TIMEOUT_MS = 5_000
 CELL_LOAD_TIMEOUT_MS = 5_000
 
@@ -63,7 +64,7 @@ NGINX_STARTUP_WAIT_SECONDS = 3
 NAME_PERMS = ["".join(perm) for perm in product(ascii_uppercase, repeat=3)][0:100]
 
 
-class TestParseSessionError(Exception):
+class TestParsingSessionError(Exception):
     __test__ = False
 
 
@@ -74,43 +75,43 @@ class ParsedCard:
     value: int
 
 
-ParsedPage = list[ParsedCard]
+ParsedPaginationBatch = list[ParsedCard]
 
 
 class TestRepo(AbstractBaseRepository[ParsedCard]):
     __test__ = False
 
     def __init__(self):
-        self.cur_page = ParsedPage()
-        self.pages: list[ParsedPage] = []
+        self.cur_batch = ParsedPaginationBatch()
+        self.batches: list[ParsedPaginationBatch] = []
 
-    def add(self, seres: ParsedCard) -> None:
-        self.cur_page.append(seres)
+    def add(self, parsed_entity: ParsedCard) -> None:
+        self.cur_batch.append(parsed_entity)
 
-    def next_page(self):
-        self.pages.append(copy(self.cur_page))
-        self.cur_page = []
+    def next_pagination_batch(self):
+        self.batches.append(copy(self.cur_batch))
+        self.cur_batch = []
 
-    def find_card_in_page(self, seres_id: int, page: ParsedPage) -> ParsedCard | None:
-        in_page = [pc for pc in page if pc.id == seres_id]
-        if len(in_page) > 1:
-            raise ValueError(f"Duplicate cards with same id {seres_id}!")
-        elif len(in_page) == 1:
-            return in_page[0]
+    def find_card_in_batch(self, entity_id: int, batch: ParsedPaginationBatch) -> ParsedCard | None:
+        in_batch = [pc for pc in batch if pc.id == entity_id]
+        if len(in_batch) > 1:
+            raise ValueError(f"Duplicate cards with same id {entity_id}!")
+        elif len(in_batch) == 1:
+            return in_batch[0]
         else:
             return None
 
-    def get(self, seres_id: int) -> ParsedCard | None:
+    def get(self, entity_id: int) -> ParsedCard | None:
         found: list[ParsedCard] = []
-        if (in_cur_page := self.find_card_in_page(seres_id, self.cur_page)):
-            found.append(in_cur_page)
+        if (in_cur_batch := self.find_card_in_batch(entity_id, self.cur_batch)):
+            found.append(in_cur_batch)
 
-        for page in self.pages:
-            if (in_page := self.find_card_in_page(seres_id, page)):
-                found.append(in_page)
+        for batch in self.batches:
+            if (in_batch := self.find_card_in_batch(entity_id, batch)):
+                found.append(in_batch)
 
         if len(found) > 1:
-            raise ValueError(f"Duplicate cards with same id {seres_id}!")
+            raise ValueError(f"Duplicate cards with same id {entity_id}!")
         elif len(found) == 1:
             return found[0]
         else:
@@ -121,7 +122,7 @@ class TestRepo(AbstractBaseRepository[ParsedCard]):
 # Sessions
 # --------------------------------------------------------------------------
 
-class StubParseSession(ResultsParseSession):
+class StubParsingSession(ParsingSession):
     """Base for both stub sessions; exposes the page so tests needn't poke _page."""
 
     __test__ = False
@@ -130,24 +131,25 @@ class StubParseSession(ResultsParseSession):
     def page(self) -> Page:
         return self._page
 
-    def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
+    def results_in_pagination_batch(self) -> Generator[tuple[Page, Locator], Any, Any]:
         raise NotImplementedError
 
-    def paginations_in_search_results(self, max_pagination: int) -> Generator[int, Any, None]:
+    def pagination_batches(self, max_depth: int) -> Generator[int, Any, None]:
         raise NotImplementedError
 
 
-class LazyCardsParseSession(StubParseSession):
+class LazyCardsParsingSession(StubParsingSession):
     """Walks the lazily-rendered card table on ``index.html``.
 
-    Same shape as the carwow session: item locators resolve before their
+    Same shape as the carwow session: result locators resolve before their
     contents arrive, so each cell is scrolled into view and then waited on.
     """
 
     __test__ = False
 
-    def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
-        # The table itself is injected after the load event.
+    def results_in_pagination_batch(self) -> Generator[tuple[Page, Locator], Any, Any]:
+        # An inline `PageSyncBarrier`: the table itself is injected after the
+        # load event, so wait for the batch layout to settle.
         self._page.locator(CARDS_TABLE).wait_for(
             state="attached", timeout=TABLE_LOAD_TIMEOUT_MS
         )
@@ -158,60 +160,64 @@ class LazyCardsParseSession(StubParseSession):
         # because each cell's subtree is rewritten while we iterate.
         for ix in range(cells.count()):
             cell = cells.nth(ix)
-            # Lower rows sit below the 1000px viewport, and their
-            # IntersectionObserver won't fire until they're scrolled to.
+            # An inline `ContentUnroller`: lower rows sit below the 1000px
+            # viewport, and their IntersectionObserver won't fire until
+            # they're scrolled to.
             cell.scroll_into_view_if_needed()
+            # An inline `ResultSyncBarrier`.
             expect(cell).to_have_attribute(
                 "data-loaded", "true", timeout=CELL_LOAD_TIMEOUT_MS
             )
             yield self._page, cell
             logger.info("Moving on to the next card")
 
-    def find_next_pagi_button(
-        self, pagi_locator: Locator, next_pagi_num: int
+    def find_next_pagination_trigger(
+        self, pagination_list_locator: Locator, next_pagination_num: int
     ) -> Locator | None:
-        for pagi_button in pagi_locator.locator("a").all():
-            pagi_str = pagi_button.text_content()
-            if not pagi_str:
+        for pagination_trigger in pagination_list_locator.locator("a").all():
+            pagination_trigger_text = pagination_trigger.text_content()
+            if not pagination_trigger_text:
                 continue
             try:
-                pagi_num = int(pagi_str.strip())
+                pagination_num = int(pagination_trigger_text.strip())
             except ValueError:
                 continue
 
-            if pagi_num == next_pagi_num:
-                return pagi_button
+            if pagination_num == next_pagination_num:
+                return pagination_trigger
 
         return None
 
-    def paginations_in_search_results(self, max_pagination: int) -> Generator[int, Any, None]:
-        """Yields 1..max_pagination inclusive, clicking through in between.
+    def pagination_batches(self, max_depth: int) -> Generator[int, Any, None]:
+        """Yields the PaginationIndex 1..max_depth inclusive, clicking through in between.
 
         NOTE: this deliberately differs from the carwow session, which loops
-        `range(1, max_pagination)` and so never parses the last page it lands
-        on — and then still asks for a next-page button that isn't there.
+        `range(1, max_depth)` and so never parses the last batch it lands
+        on — and then still asks for a next pagination trigger that isn't there.
         """
-        for cur_page_num in range(1, max_pagination + 1):
-            yield cur_page_num
+        for pagination_index in range(1, max_depth + 1):
+            yield pagination_index
 
-            if cur_page_num == max_pagination:
+            if pagination_index == max_depth:
                 return
 
-            next_pagi_button = self.find_next_pagi_button(
-                self._page.locator(PAGI_LIST), cur_page_num + 1
+            next_pagination_trigger = self.find_next_pagination_trigger(
+                self._page.locator(PAGINATION_LIST), pagination_index + 1
             )
 
-            if not next_pagi_button:
-                raise TestParseSessionError(
-                    f"Couldn't move to the next page: Page {cur_page_num + 1}"
+            if not next_pagination_trigger:
+                # TODO: this is where a `PaginationControlMissingException`
+                # raised by serespar belongs, rather than a test-local error.
+                raise TestParsingSessionError(
+                    f"Couldn't move to the next pagination batch: {pagination_index + 1}"
                 )
 
-            next_pagi_button.click()
+            next_pagination_trigger.click()
             # Pagination links are real hrefs, so this is a full navigation.
             self._page.wait_for_load_state("load")
 
 
-class DefectsParseSession(StubParseSession):
+class DefectsParsingSession(StubParsingSession):
     """Opens ``defects.html``. Iteration/pagination are unused by the negatives."""
 
     __test__ = False
@@ -239,7 +245,7 @@ class CardExtractor(BaseExtractor[TestRepo, ParsedCard]):
         return int(self.text_at_selector(".card-value"))
 
     def extract_and_persist(self) -> None:
-        self._seres = ParsedCard(
+        self._parsed_entity = ParsedCard(
             self._extract_id(),
             self._extract_name(),
             self._extract_value(),
@@ -259,8 +265,8 @@ class NonCriticalValueCardExtractor(CardExtractor):
         return int(self.text_at_selector(".card-value"))
 
 
-class NeverSetsSeresExtractor(CardExtractor):
-    """Extracts fine but forgets to assign ``self._seres`` — silent data loss."""
+class NeverSetsParsedEntityExtractor(CardExtractor):
+    """Extracts fine but forgets to assign ``self._parsed_entity`` — silent data loss."""
 
     __test__ = False
 
@@ -287,7 +293,7 @@ def _wait_for_nginx() -> None:
 
 @pytest.fixture
 def defects_page() -> Generator[Page, Any, None]:
-    with DefectsParseSession(STUB_DEFECTS_URL, None) as session:
+    with DefectsParsingSession(STUB_DEFECTS_URL, None) as session:
         session.page.set_default_timeout(DEFECT_TIMEOUT_MS)
         yield session.page
 
@@ -298,19 +304,19 @@ def repo() -> TestRepo:
 
 
 @pytest.fixture
-def ctx() -> ParseItemContext:
-    return ParseItemContext(1, 1, 1)
+def tracker() -> SessionTracker:
+    return SessionTracker(1, 1, 1)
 
 
 @pytest.fixture
-def extractor(defects_page: Page, repo: TestRepo, ctx: ParseItemContext):
-    """Builds a CardExtractor over an arbitrary item locator, outside a `with`.
+def extractor(defects_page: Page, repo: TestRepo, tracker: SessionTracker):
+    """Builds a CardExtractor over an arbitrary result locator, outside a `with`.
 
     The text_/url_ helpers are plain methods, so they can be exercised without
     entering the context manager.
     """
-    def _build(item: Locator) -> CardExtractor:
-        return CardExtractor(repo, defects_page, item, ctx)
+    def _build(result_locator: Locator) -> CardExtractor:
+        return CardExtractor(repo, defects_page, result_locator, tracker)
 
     return _build
 
@@ -321,7 +327,7 @@ def extractor(defects_page: Page, repo: TestRepo, ctx: ParseItemContext):
 
 def test_stub_really_is_lazy() -> None:
     """Guard: if index.html ever renders eagerly, the happy path stops proving anything."""
-    with LazyCardsParseSession(STUB_INDEX_URL, None) as session:
+    with LazyCardsParsingSession(STUB_INDEX_URL, None) as session:
         page = session.page
 
         # goto() waited for `load`; the table is injected only after that.
@@ -368,76 +374,76 @@ def test_stub_really_is_lazy() -> None:
 
 
 def test_integ_lazy_happy_path() -> None:
-    with LazyCardsParseSession(STUB_INDEX_URL, None) as session:
+    with LazyCardsParsingSession(STUB_INDEX_URL, None) as session:
         repo = TestRepo()
-        for cur_pagi_num in session.paginations_in_search_results(NUM_PAGES):
-            cur_item_num = 0
-            for page, card_loc in session.results_in_pagination():
-                cur_item_num += 1
-                ctx = ParseItemContext(1, cur_pagi_num, cur_item_num)
+        for pagination_index in session.pagination_batches(NUM_PAGINATION_BATCHES):
+            result_index = 0
+            for page, card_loc in session.results_in_pagination_batch():
+                result_index += 1
+                tracker = SessionTracker(1, pagination_index, result_index)
                 try:
-                    with CardExtractor(repo, page, card_loc, ctx) as xtor:
+                    with CardExtractor(repo, page, card_loc, tracker) as xtor:
                         xtor.extract_and_persist()
                 except Exception:
                     session.num_failed_results += 1
-            repo.next_page()
+            repo.next_pagination_batch()
 
         assert session.num_failed_results == 0
-        assert len(repo.pages) == NUM_PAGES
+        assert len(repo.batches) == NUM_PAGINATION_BATCHES
 
-        for page_ix, parsed_page in enumerate(repo.pages):
-            assert len(parsed_page) == CARDS_PER_PAGE
-            for seres_ix, seres in enumerate(parsed_page, start=1):
-                expected_id = page_ix * CARDS_PER_PAGE + seres_ix
-                assert seres.id == expected_id
-                assert seres.value == expected_id
-                assert seres.name == NAME_PERMS[expected_id - 1]
+        for batch_ix, parsed_batch in enumerate(repo.batches):
+            assert len(parsed_batch) == CARDS_PER_BATCH
+            for result_ix, parsed_entity in enumerate(parsed_batch, start=1):
+                expected_id = batch_ix * CARDS_PER_BATCH + result_ix
+                assert parsed_entity.id == expected_id
+                assert parsed_entity.value == expected_id
+                assert parsed_entity.name == NAME_PERMS[expected_id - 1]
 
         # Nothing was dropped and nothing was double-counted.
         assert repo.get(1) is not None
-        assert repo.get(NUM_PAGES * CARDS_PER_PAGE) is not None
-        assert repo.get(NUM_PAGES * CARDS_PER_PAGE + 1) is None
+        assert repo.get(NUM_PAGINATION_BATCHES * CARDS_PER_BATCH) is not None
+        assert repo.get(NUM_PAGINATION_BATCHES * CARDS_PER_BATCH + 1) is None
 
 
 # --------------------------------------------------------------------------
 # BaseExtractor.__exit__ — what survives and what is discarded
 # --------------------------------------------------------------------------
 
-def test_valid_card_is_persisted(defects_page, repo, ctx) -> None:
-    with CardExtractor(repo, defects_page, card(defects_page, "ok"), ctx) as xtor:
+def test_valid_card_is_persisted(defects_page, repo, tracker) -> None:
+    with CardExtractor(repo, defects_page, card(defects_page, "ok"), tracker) as xtor:
         xtor.extract_and_persist()
 
-    assert repo.cur_page == [ParsedCard(id=1, name="AAA", value=1)]
+    assert repo.cur_batch == [ParsedCard(id=1, name="AAA", value=1)]
 
 
-def test_critical_failure_propagates_and_discards_record(defects_page, repo, ctx) -> None:
+def test_critical_failure_propagates_and_discards_record(defects_page, repo, tracker) -> None:
     """__exit__ returns False on error, so the record never reaches the repo."""
     with pytest.raises(ExtractionCriticalError):
-        with CardExtractor(repo, defects_page, card(defects_page, "empty-id"), ctx) as xtor:
+        with CardExtractor(repo, defects_page, card(defects_page, "empty-id"), tracker) as xtor:
             xtor.extract_and_persist()
 
-    assert repo.cur_page == []
+    assert repo.cur_batch == []
 
 
-def test_partial_record_is_discarded_not_half_written(defects_page, repo, ctx) -> None:
+def test_partial_record_is_discarded_not_half_written(defects_page, repo, tracker) -> None:
     """id and name parse fine, value doesn't — the whole card is still dropped."""
     with pytest.raises(ExtractionCriticalError):
-        with CardExtractor(repo, defects_page, card(defects_page, "missing-value"), ctx) as xtor:
+        with CardExtractor(repo, defects_page, card(defects_page, "missing-value"), tracker) as xtor:
             xtor.extract_and_persist()
 
-    assert repo.cur_page == []
+    assert repo.cur_batch == []
     assert repo.get(4) is None
 
 
-def test_unset_seres_is_silently_not_persisted(defects_page, repo, ctx, caplog) -> None:
+def test_unset_parsed_entity_is_silently_not_persisted(defects_page, repo, tracker, caplog) -> None:
     """No exception, nothing persisted, only a CRITICAL log to show for it."""
     with caplog.at_level(logging.CRITICAL, logger="serespar.base_extractor"):
-        with NeverSetsSeresExtractor(
-            repo, defects_page, card(defects_page, "ok"), ctx
+        with NeverSetsParsedEntityExtractor(
+            repo, defects_page, card(defects_page, "ok"), tracker
         ) as xtor:
             xtor.extract_and_persist()
 
-    assert repo.cur_page == []
+    assert repo.cur_batch == []
     assert any(rec.levelno == logging.CRITICAL for rec in caplog.records)
 
 
@@ -445,8 +451,8 @@ def test_unset_seres_is_silently_not_persisted(defects_page, repo, ctx, caplog) 
 # critical_info — wraps whatever went wrong, keeps the cause
 # --------------------------------------------------------------------------
 
-def test_critical_info_wraps_parsing_error(defects_page, repo, ctx) -> None:
-    xtor = CardExtractor(repo, defects_page, card(defects_page, "empty-id"), ctx)
+def test_critical_info_wraps_parsing_error(defects_page, repo, tracker) -> None:
+    xtor = CardExtractor(repo, defects_page, card(defects_page, "empty-id"), tracker)
 
     with pytest.raises(ExtractionCriticalError) as excinfo:
         xtor._extract_id()
@@ -456,9 +462,9 @@ def test_critical_info_wraps_parsing_error(defects_page, repo, ctx) -> None:
     assert "CardExtractor" in str(excinfo.value)
 
 
-def test_critical_info_wraps_value_error(defects_page, repo, ctx) -> None:
+def test_critical_info_wraps_value_error(defects_page, repo, tracker) -> None:
     """The text extracts fine; int() is what fails."""
-    xtor = CardExtractor(repo, defects_page, card(defects_page, "nan-id"), ctx)
+    xtor = CardExtractor(repo, defects_page, card(defects_page, "nan-id"), tracker)
 
     with pytest.raises(ExtractionCriticalError) as excinfo:
         xtor._extract_id()
@@ -466,9 +472,9 @@ def test_critical_info_wraps_value_error(defects_page, repo, ctx) -> None:
     assert isinstance(excinfo.value.__cause__, ValueError)
 
 
-def test_critical_info_wraps_playwright_timeout(defects_page, repo, ctx) -> None:
+def test_critical_info_wraps_playwright_timeout(defects_page, repo, tracker) -> None:
     """A selector that never resolves surfaces as a timeout, not a ParsingError."""
-    xtor = CardExtractor(repo, defects_page, card(defects_page, "missing-value"), ctx)
+    xtor = CardExtractor(repo, defects_page, card(defects_page, "missing-value"), tracker)
 
     with pytest.raises(ExtractionCriticalError) as excinfo:
         xtor._extract_value()
@@ -477,38 +483,38 @@ def test_critical_info_wraps_playwright_timeout(defects_page, repo, ctx) -> None
 
 
 def test_critical_info_reports_position_in_message(defects_page, repo) -> None:
-    ctx = ParseItemContext(1, 3, 7)
-    xtor = CardExtractor(repo, defects_page, card(defects_page, "empty-id"), ctx)
+    tracker = SessionTracker(1, 3, 7)
+    xtor = CardExtractor(repo, defects_page, card(defects_page, "empty-id"), tracker)
 
     with pytest.raises(ExtractionCriticalError) as excinfo:
         xtor._extract_id()
 
-    assert "item 7" in str(excinfo.value)
-    assert "pagi 3" in str(excinfo.value)
+    assert "result 7" in str(excinfo.value)
+    assert "pagination batch 3" in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------
 # noncrit_info — degrade instead of discard
 # --------------------------------------------------------------------------
 
-def test_noncrit_info_falls_back_and_still_persists(defects_page, repo, ctx, caplog) -> None:
+def test_noncrit_info_falls_back_and_still_persists(defects_page, repo, tracker, caplog) -> None:
     with caplog.at_level(logging.ERROR, logger="serespar.base_extractor"):
         with NonCriticalValueCardExtractor(
-            repo, defects_page, card(defects_page, "missing-value"), ctx
+            repo, defects_page, card(defects_page, "missing-value"), tracker
         ) as xtor:
             xtor.extract_and_persist()
 
-    assert repo.cur_page == [ParsedCard(id=4, name="AAD", value=NONCRIT_FALLBACK)]
+    assert repo.cur_batch == [ParsedCard(id=4, name="AAD", value=NONCRIT_FALLBACK)]
     assert any(rec.levelno == logging.ERROR for rec in caplog.records)
 
 
-def test_noncrit_info_does_not_interfere_when_field_is_fine(defects_page, repo, ctx) -> None:
+def test_noncrit_info_does_not_interfere_when_field_is_fine(defects_page, repo, tracker) -> None:
     with NonCriticalValueCardExtractor(
-        repo, defects_page, card(defects_page, "ok"), ctx
+        repo, defects_page, card(defects_page, "ok"), tracker
     ) as xtor:
         xtor.extract_and_persist()
 
-    assert repo.cur_page == [ParsedCard(id=1, name="AAA", value=1)]
+    assert repo.cur_batch == [ParsedCard(id=1, name="AAA", value=1)]
 
 
 # --------------------------------------------------------------------------
@@ -570,8 +576,8 @@ def test_url_from_link_elt_reads_absolute_href(defects_page, extractor) -> None:
     assert xtor.url_from_link_elt(link) == Url("https://example.com/cards/7")
 
 
-def test_url_falls_back_to_the_item_itself(defects_page, extractor) -> None:
-    """With no link element passed, the item locator is treated as the anchor."""
+def test_url_falls_back_to_the_result_itself(defects_page, extractor) -> None:
+    """With no link element passed, the result locator is treated as the anchor."""
     link = card(defects_page, "link-ok").locator("a.card-link")
     xtor = extractor(link)
 

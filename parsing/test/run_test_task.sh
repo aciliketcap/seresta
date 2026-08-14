@@ -2,7 +2,7 @@ task() {
     echo TEST TASK STARTED
     # Headless unless the caller asked otherwise, so the suite runs on a box
     # with no X display: SERESPAR_HEADED=1 podman compose up
-    # Values kept in step with headed_from_env() in serespar/parse_session.py.
+    # Values kept in step with headed_from_env() in serespar/parsing_session.py.
     # Assign through a default first: init.sh runs under `set -u`, so expanding
     # an unset SERESPAR_HEADED directly would kill the task.
     local headed="${SERESPAR_HEADED:-}"

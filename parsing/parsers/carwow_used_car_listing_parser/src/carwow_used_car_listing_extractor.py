@@ -33,7 +33,7 @@ class CarWowUsedCarListingExtractor(BaseExtractor[
 
     @BaseExtractor.critical_info
     def _extract_id_url(self) -> tuple[str, Url]:
-        url = self.url_from_link_elt(self._item.locator(CARWOW_CAR_CARD_SELECTORS["URL"]))
+        url = self.url_from_link_elt(self._result_locator.locator(CARWOW_CAR_CARD_SELECTORS["URL"]))
         id = str(url).split("/")[-1]
         return id, url
 
@@ -45,7 +45,7 @@ class CarWowUsedCarListingExtractor(BaseExtractor[
 
     @BaseExtractor.critical_info
     def _extract_location_year_miles(self) -> tuple[str|None, int, int]:
-        details = self._item.locator(CARWOW_CAR_CARD_SELECTORS["DETAILS"]).first
+        details = self._result_locator.locator(CARWOW_CAR_CARD_SELECTORS["DETAILS"]).first
         details_elts = details.locator("ul > li").all()
         location = None
         if len(details_elts) == 3:
@@ -65,7 +65,7 @@ class CarWowUsedCarListingExtractor(BaseExtractor[
 
     @BaseExtractor.critical_info
     def _extract_summary_elts(self) -> SummarySection:
-        summary_elt_locs = self._item.locator(CARWOW_CAR_CARD_SELECTORS["SUMMARY_ELTS"]).all()
+        summary_elt_locs = self._result_locator.locator(CARWOW_CAR_CARD_SELECTORS["SUMMARY_ELTS"]).all()
         transmission: str = self.text_at_locator(summary_elt_locs[0])
         fuel_type: str = self.text_at_locator(summary_elt_locs[1])
         if fuel_type == "Electric":
@@ -86,15 +86,15 @@ class CarWowUsedCarListingExtractor(BaseExtractor[
     def extract_and_persist(self) -> None:
         trim = self._extract_trim()
         make, model = self._extract_make_model()
-        seres_id, url = self._extract_id_url()
+        result_id, url = self._extract_id_url()
         price = self._extract_price()
         summary_section: SummarySection = self._extract_summary_elts()
         location, year, miles = self._extract_location_year_miles()
 
-        self._seres = CarWowRawUsedCarListing(
+        self._parsed_entity = CarWowRawUsedCarListing(
             source=Source.CARWOW,
-            seres_id=seres_id,
-            last_found_in=self._ctx.parse_session_id,
+            result_id=result_id,
+            last_found_in=self._tracker.parsing_session_id,
             url=url,
             trim=trim,
             make=make,
