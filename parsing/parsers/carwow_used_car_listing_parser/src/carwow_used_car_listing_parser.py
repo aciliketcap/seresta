@@ -3,16 +3,16 @@ import locale
 from email.base64mime import body_decode
 from typing import Any, Generator
 from playwright.sync_api import Locator, Page, TimeoutError
-from base_used_car_listing_parser import BaseUsedCarListingParseSession, Source
+from base_used_car_listing_parser import BaseUsedCarListingParsingSession, Source
 import logging
 from time import sleep # for sleeping random amounts of time between clicks
 
 logger = logging.getLogger(__name__)
 
 # TODO: this is per parser cookies file, move this down to serespar module once I figure out how to do per task cookies properly
-COOKIES_FILE = "/run/secrets/parser_cookies"
+AUTH_MATERIAL_FILE = "/run/secrets/parser_cookies"
 
-MAX_NEXT_PAGI_RETRIES = 3
+MAX_NEXT_PAGINATION_BATCH_RETRIES = 3
 NEW_PAGE_LOAD_WAIT_SECONDS = 6
 
 CARWOW_SEARCH_SELECTORS = {
@@ -23,12 +23,18 @@ CARWOW_SEARCH_SELECTORS = {
 }
 
 @dataclass
-class search():
+class OriginQuery():
+    """The search parameters this session applies to carwow.
+
+    TODO: only the postcode lives here; the price / age / fuel / gearbox
+    filters are still hardcoded in `process_origin_query` below and belong in
+    the `TaskConfig`.
+    """
     postcode: str
 
 
 # NEVER COMMIT THIS, put this into a config file!!!
-s = search(
+origin_query = OriginQuery(
     "SW20 8JP"
 )
 
@@ -53,10 +59,10 @@ js_frame_load_checker:str = '''
 
 
 # TODO: this class's methods need to be abstracted away into serespar, just like extractors. Also they need to be made more robust!
-class CarWowParseSession(BaseUsedCarListingParseSession):
+class CarWowParsingSession(BaseUsedCarListingParsingSession):
     SOURCE = Source.CARWOW
 
-    def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
+    def results_in_pagination_batch(self) -> Generator[tuple[Page, Locator], Any, Any]:
         # TODO: unfortunately this is not working, results are loaded into the DOM lazyly. We need to approach this more like an infinite scroll, or at least "move on to the next and scroll into view until depleted"
         # TODO: another hacky approach would be to scroll to bottom and wait for a while
 
@@ -65,10 +71,11 @@ class CarWowParseSession(BaseUsedCarListingParseSession):
 
         car_card_frames_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["CAR_CARD_FRAMES"])
         for car_card_frame in car_card_frames_locator.all():
+            # An inline `ContentUnroller`.
             car_card_frame.scroll_into_view_if_needed()
             frame_id = car_card_frame.get_attribute('id')
             if frame_id:
-                # try to make sure frame contents are loaded
+                # An inline `ResultSyncBarrier`: try to make sure frame contents are loaded
                 for i in range(3):
                     try:
                         # if false waits until timeout and throws
@@ -83,42 +90,47 @@ class CarWowParseSession(BaseUsedCarListingParseSession):
             yield self._page, car_card_frame
             logger.debug("moving on to the next card")
 
-    def click_and_load_next_pagi(self, cur_page_num, pagi_list_locator) -> bool:
-        for pagi in pagi_list_locator.all():
-            pagi_text = pagi.text_content().strip()
+    def step_to_next_pagination_batch(self, pagination_index, pagination_list_locator) -> bool:
+        """The `PaginationBatchStepper`: find the `NextPaginationTrigger` and click it."""
+        for pagination_trigger in pagination_list_locator.all():
+            pagination_trigger_text = pagination_trigger.text_content().strip()
 
-            if pagi_text == str(cur_page_num + 1):
-                pagi.click()
-                logger.debug(f"moved to page {cur_page_num + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
+            if pagination_trigger_text == str(pagination_index + 1):
+                pagination_trigger.click()
+                logger.debug(f"moved to pagination batch {pagination_index + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
                 sleep(NEW_PAGE_LOAD_WAIT_SECONDS)
                 self._page.wait_for_load_state()
-                # TODO: we need to check smt else to make sure SPA style new pagination content is loaded! Smt similar to the one in results_in_pagination
+                # TODO: we need to check smt else to make sure SPA style new pagination content is loaded! Smt similar to the one in results_in_pagination_batch
                 return True
         return False
 
-    def paginations_in_search_results(self, max_pagination: int) -> Generator[int, Any, None]:
-        for cur_page_num in range(1, max_pagination):
-            # make sure initial results are there before attempting to paginate further
+    def pagination_batches(self, max_depth: int) -> Generator[int, Any, None]:
+        for pagination_index in range(1, max_depth):
+            # An inline `PageSyncBarrier`: make sure the batch layout is there
+            # before attempting to paginate further.
             self._page.locator(CARWOW_SEARCH_SELECTORS["CAR_CARDS_CONTAINER"]).wait_for()
 
-            yield cur_page_num
+            yield pagination_index
 
-            # TODO: this is broken, doesn't make sure a new pagination is loaded, just keeps parsing the existing page over and over if new one doesn't load!
-            pagi_list_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["PAGINATION_LIST"])
-            for i in range(MAX_NEXT_PAGI_RETRIES):
-                if self.click_and_load_next_pagi(cur_page_num, pagi_list_locator):
+            # TODO: this is broken, doesn't make sure a new PaginationBatch is loaded, just keeps parsing the existing one over and over if the new one doesn't load!
+            pagination_list_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["PAGINATION_LIST"])
+            # TODO: a fixed 1s sleep, not the glossary's `RetryWithBackoff`.
+            for i in range(MAX_NEXT_PAGINATION_BATCH_RETRIES):
+                if self.step_to_next_pagination_batch(pagination_index, pagination_list_locator):
                     break
                 else:
-                    logger.error("Unable to move to next pagi %s, retrying... (%s)", cur_page_num+1, i)
+                    logger.error("Unable to move to next pagination batch %s, retrying... (%s)", pagination_index+1, i)
                     sleep(1)
 
 
-    def initiate_search(self) -> None:
-        # TODO: pass in search params from config
-        super().initiate_search()
+    def process_origin_query(self) -> None:
+        """The `OriginQueryProcess` for carwow: it fills the filter forms by hand
+        rather than compiling the `OriginQuery` into a URL."""
+        # TODO: pass in the rest of the OriginQuery from the TaskConfig
+        super().process_origin_query()
 
         # TODO: these input elts are also lazily loaded
-        self._page.locator("input#location-desktop").fill(s.postcode)
+        self._page.locator("input#location-desktop").fill(origin_query.postcode)
         sleep(2)
         self._page.get_by_text("Set location").click()
         sleep(2)

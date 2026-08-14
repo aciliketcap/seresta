@@ -33,7 +33,7 @@ class BigMotoringWorldUsedCarListingExtractor(
         ]):
     @BaseExtractor.critical_info
     def _extract_id_url(self) -> tuple[str, Url]:
-        url = self.url_from_link_elt(self._item.get_attribute("href"), BMW_BASE_URL)
+        url = self.url_from_link_elt(self._result_locator.get_attribute("href"), BMW_BASE_URL)
         id = str(url).split("-")[-1][:-1]
         return id, url
 
@@ -61,7 +61,7 @@ class BigMotoringWorldUsedCarListingExtractor(
 
     @BaseExtractor.critical_info
     def _extract_infos(self) -> CarInfos:
-        info_locators = self._item.locator(BMW_CAR_CARD_SELECTORS["INFO_FLEX_ELTS"]).all()
+        info_locators = self._result_locator.locator(BMW_CAR_CARD_SELECTORS["INFO_FLEX_ELTS"]).all()
         miles = self._extract_miles(info_locators[0])
         transmission: str = self.text_at_locator(info_locators[1])
         fuel_type: str = self.text_at_locator(info_locators[2])
@@ -88,16 +88,16 @@ class BigMotoringWorldUsedCarListingExtractor(
 
     def extract_and_persist(self) -> None:
         make, model = self._extract_make_model()
-        seres_id, url = self._extract_id_url()
+        result_id, url = self._extract_id_url()
         price = self._extract_price()
         car_infos: CarInfos = self._extract_infos()
         year, trim = self._extract_year_trim()
         location = self._extract_location()
 
-        self._seres = BigMotoringWorldRawUsedCarListing(
+        self._parsed_entity = BigMotoringWorldRawUsedCarListing(
             source=Source.BIG_MOTORING_WORLD,
-            seres_id=seres_id,
-            last_found_in=self._ctx.parse_session_id,
+            result_id=result_id,
+            last_found_in=self._tracker.parsing_session_id,
             url=url,
             trim=trim,
             make=make,

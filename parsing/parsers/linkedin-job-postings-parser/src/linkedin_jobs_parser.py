@@ -1,6 +1,6 @@
 from typing import Any, Generator
 from playwright.sync_api import Locator, Page
-from base_job_postings_parser import BaseJobPostingsParseSession, Source
+from base_job_postings_parser import BaseJobPostingsParsingSession, Source
 import logging
 from time import sleep # for sleeping random amounts of time between clicks
 
@@ -15,10 +15,10 @@ NEW_PAGE_LOAD_WAIT_SECONDS=3
 
 JOB_BUTTON_SCROLL_PIXELS = 120
 
-class LinkedInJobsParseSession(BaseJobPostingsParseSession):
+class LinkedInJobsParsingSession(BaseJobPostingsParsingSession):
     SOURCE = Source.LINKEDIN
 
-    def results_in_pagination(self) -> Generator[tuple[Page, Locator], Any, Any]:
+    def results_in_pagination_batch(self) -> Generator[tuple[Page, Locator], Any, Any]:
         job_button_list_locator = self._page.locator(LINKEDIN_SEARCH_SELECTORS["JOB_BUTTON_LIST"])
         for job_button in job_button_list_locator.all():
             job_button.scroll_into_view_if_needed()
@@ -31,24 +31,24 @@ class LinkedInJobsParseSession(BaseJobPostingsParseSession):
             sleep(1)
             logger.debug("moving on to the next card")
 
-    def paginations_in_search_results(self, max_pagination: int) -> Generator[int, Any, None]:
-        for cur_page_num in range(1, max_pagination):
+    def pagination_batches(self, max_depth: int) -> Generator[int, Any, None]:
+        for pagination_index in range(1, max_depth):
 
-            yield cur_page_num
+            yield pagination_index
 
-            pagi_list_locator = self._page.locator(LINKEDIN_SEARCH_SELECTORS["PAGINATION_LIST"])
-            for pagi in pagi_list_locator.all():
-                pagi_text = pagi.locator("css=span").text_content()
-                logger.debug(f"pagination number is {pagi_text}")
+            pagination_list_locator = self._page.locator(LINKEDIN_SEARCH_SELECTORS["PAGINATION_LIST"])
+            for pagination_trigger in pagination_list_locator.all():
+                pagination_trigger_text = pagination_trigger.locator("css=span").text_content()
+                logger.debug(f"pagination trigger number is {pagination_trigger_text}")
                 # bug in LinkedIn causes … to show instead of 9 when on 8th page
-                if cur_page_num == 9:
-                    if pagi_text == '…':
-                        pagi.click()
+                if pagination_index == 9:
+                    if pagination_trigger_text == '…':
+                        pagination_trigger.click()
                         break
                 else:
-                    if pagi_text == str(cur_page_num + 1):
-                        pagi.click()
+                    if pagination_trigger_text == str(pagination_index + 1):
+                        pagination_trigger.click()
                         break
             self._page.wait_for_load_state()
-            logger.debug(f"moved to page {cur_page_num + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
+            logger.debug(f"moved to pagination batch {pagination_index + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
             sleep(NEW_PAGE_LOAD_WAIT_SECONDS)

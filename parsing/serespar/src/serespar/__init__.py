@@ -1,14 +1,14 @@
-from .parse_session import ResultsParseSession
+from .parsing_session import ParsingSession
 from .cookie_saver import save_login_cookies
 from .base_repos import AbstractBaseRepository
-from .base_extractor import ParseItemContext, ParsingError, BaseExtractor, ExtractionCriticalError
+from .base_extractor import SessionTracker, ParsingError, BaseExtractor, ExtractionCriticalError
 
 __all__ = [
-    "ResultsParseSession",
+    "ParsingSession",
     "save_login_cookies",
     "AbstractBaseRepository",
     "BaseExtractor",
     "ExtractionCriticalError",
-    "ParseItemContext",
+    "SessionTracker",
     "ParsingError"
     ]

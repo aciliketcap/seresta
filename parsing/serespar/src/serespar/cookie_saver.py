@@ -7,7 +7,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 @contextmanager
-def save_login_cookies(login_url: str, success_url: str, cookie_file: str|Path = "cookies.json"):
+def save_login_cookies(login_url: str, success_url: str, auth_material_file: str|Path = "cookies.json"):
+    """Drive a manual login and save the resulting cookies as `AuthMaterial`.
+
+    TODO: this is what an `ActiveFlow`'s `LoginProcess` would do, minus the
+    `AuthCredentials`: the developer types them into the browser by hand.
+    """
     with sync_playwright() as p:
         logger.info(f"Launching browser for login and cookie collection.")
         browser = p.chromium.launch(headless=False)
@@ -20,6 +25,6 @@ def save_login_cookies(login_url: str, success_url: str, cookie_file: str|Path =
         
         page.wait_for_url(success_url, timeout=0)
         logger.info("Redirected to the expected page after logging in. Saving cookies...")
-        with open(cookie_file, "w") as f:
+        with open(auth_material_file, "w") as f:
             f.write(json.dumps(context.cookies()))
-            logger.info(f"Cookies saved to {cookie_file}")
+            logger.info(f"Auth material (cookies) saved to {auth_material_file}")

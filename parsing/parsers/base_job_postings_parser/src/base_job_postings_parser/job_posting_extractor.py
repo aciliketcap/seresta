@@ -10,11 +10,11 @@ class JobPostingExtractor:
     def __init__(self, repo: AbstractBaseRawJobPostingRepository) -> None:
         self._repo = repo
 
-    def extract_and_persist(self, page: Page, job_card: Locator, parse_session_id: int) -> None:
+    def extract_and_persist(self, page: Page, job_card: Locator, parsing_session_id: int) -> None:
         """Abstract method, it should try to persist the job card in the repo.
 
-        ``parse_session_id`` is stored on the posting's ``last_found_in`` field and
-        used to link the result to the current parse session.
+        ``parsing_session_id`` is stored on the posting's ``last_found_in`` field and
+        used to link the result to the current parsing session.
         """
         pass
 
