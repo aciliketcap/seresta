@@ -30,7 +30,7 @@ parser.add_argument('-a', '--auth-material-path',
     help='Path of the AuthMaterial (cookies) file')
 opts = parser.parse_args()
 
-engine = build_engine_from_env(secrets_dir)
+engine = build_engine_from_env()
 init_schema(engine)
 sm = make_sessionmaker(engine)
 seed_sources(sm)

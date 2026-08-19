@@ -7,7 +7,17 @@ authors = [
 ]
 requires-python = "==3.12.3"
 dependencies = [
-    "pydantic>=2.13.3"
+    "pydantic>=2.13.3",
+    "pydantic-settings>=2.7.0"
+]
+
+# `serespar.db.postgres` only. Nothing in `serespar/__init__.py` imports it, so
+# a parser that persists some other way -- or the test suite, which persists
+# nothing -- does not pull SQLAlchemy in.
+[project.optional-dependencies]
+postgres = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2"
 ]
 
 [build-system]

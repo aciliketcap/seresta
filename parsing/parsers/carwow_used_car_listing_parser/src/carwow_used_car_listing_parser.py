@@ -1,4 +1,3 @@
-from pydantic.dataclasses import dataclass
 import locale
 from email.base64mime import body_decode
 from typing import Any, Generator
@@ -7,13 +6,9 @@ from base_used_car_listing_parser import BaseUsedCarListingParsingSession, Sourc
 import logging
 from time import sleep # for sleeping random amounts of time between clicks
 
+from .config import carwow_config
+
 logger = logging.getLogger(__name__)
-
-# TODO: this is per parser cookies file, move this down to serespar module once I figure out how to do per task cookies properly
-AUTH_MATERIAL_FILE = "/run/secrets/parser_cookies"
-
-MAX_NEXT_PAGINATION_BATCH_RETRIES = 3
-NEW_PAGE_LOAD_WAIT_SECONDS = 6
 
 CARWOW_SEARCH_SELECTORS = {
     "CAR_CARDS_CONTAINER": "turbo-frame#stock_cars_v2_cards",
@@ -21,22 +16,6 @@ CARWOW_SEARCH_SELECTORS = {
     "CAR_CARD_FRAMES": "turbo-frame#stock_cars_v2_cards turbo-frame",
     "PAGINATION_LIST": "div.pagination__page a"
 }
-
-@dataclass
-class OriginQuery():
-    """The search parameters this session applies to carwow.
-
-    TODO: only the postcode lives here; the price / age / fuel / gearbox
-    filters are still hardcoded in `process_origin_query` below and belong in
-    the `TaskConfig`.
-    """
-    postcode: str
-
-
-# NEVER COMMIT THIS, put this into a config file!!!
-origin_query = OriginQuery(
-    "SW20 8JP"
-)
 
 js_frame_load_checker:str = '''
 (frameId) => {
@@ -76,13 +55,13 @@ class CarWowParsingSession(BaseUsedCarListingParsingSession):
             frame_id = car_card_frame.get_attribute('id')
             if frame_id:
                 # An inline `ResultSyncBarrier`: try to make sure frame contents are loaded
-                for i in range(3):
+                for i in range(carwow_config().result_sync_retries):
                     try:
                         # if false waits until timeout and throws
                         self._page.wait_for_function(
                             expression=js_frame_load_checker,
                             arg=frame_id,
-                            timeout=1000)
+                            timeout=carwow_config().result_sync_timeout_ms)
                     except TimeoutError:
                         pass # just retry
 
@@ -97,8 +76,9 @@ class CarWowParsingSession(BaseUsedCarListingParsingSession):
 
             if pagination_trigger_text == str(pagination_index + 1):
                 pagination_trigger.click()
-                logger.debug(f"moved to pagination batch {pagination_index + 1}, sleeping {NEW_PAGE_LOAD_WAIT_SECONDS}")
-                sleep(NEW_PAGE_LOAD_WAIT_SECONDS)
+                wait_seconds = carwow_config().new_page_load_wait_seconds
+                logger.debug(f"moved to pagination batch {pagination_index + 1}, sleeping {wait_seconds}")
+                sleep(wait_seconds)
                 self._page.wait_for_load_state()
                 # TODO: we need to check smt else to make sure SPA style new pagination content is loaded! Smt similar to the one in results_in_pagination_batch
                 return True
@@ -114,59 +94,65 @@ class CarWowParsingSession(BaseUsedCarListingParsingSession):
 
             # TODO: this is broken, doesn't make sure a new PaginationBatch is loaded, just keeps parsing the existing one over and over if the new one doesn't load!
             pagination_list_locator = self._page.locator(CARWOW_SEARCH_SELECTORS["PAGINATION_LIST"])
-            # TODO: a fixed 1s sleep, not the glossary's `RetryWithBackoff`.
-            for i in range(MAX_NEXT_PAGINATION_BATCH_RETRIES):
+            # TODO: a fixed sleep, not the glossary's `RetryWithBackoff`.
+            for i in range(carwow_config().max_next_pagination_batch_retries):
                 if self.step_to_next_pagination_batch(pagination_index, pagination_list_locator):
                     break
                 else:
                     logger.error("Unable to move to next pagination batch %s, retrying... (%s)", pagination_index+1, i)
-                    sleep(1)
+                    sleep(carwow_config().pagination_retry_sleep_seconds)
 
 
     def process_origin_query(self) -> None:
         """The `OriginQueryProcess` for carwow: it fills the filter forms by hand
-        rather than compiling the `OriginQuery` into a URL."""
-        # TODO: pass in the rest of the OriginQuery from the TaskConfig
+        rather than compiling the `OriginQuery` into a URL.
+
+        Every value it types comes from the `OriginQuery` of the resolved
+        config; the pause after each interaction is the parser layer's
+        `form_settle_seconds`.
+        """
         super().process_origin_query()
+
+        origin_query = carwow_config().origin_query
+        settle = carwow_config().form_settle_seconds
 
         # TODO: these input elts are also lazily loaded
         self._page.locator("input#location-desktop").fill(origin_query.postcode)
-        sleep(2)
+        sleep(settle)
         self._page.get_by_text("Set location").click()
-        sleep(2)
+        sleep(settle)
         logger.info("location set")
 
-        self._page.locator("select#price-gte-desktop").select_option("10000")
-        sleep(2)
-        self._page.locator("select#price-lte-desktop").select_option("18000")
-        sleep(2)
-        logger.info("price set to ... - ...")
+        self._page.locator("select#price-gte-desktop").select_option(str(origin_query.price_min))
+        sleep(settle)
+        self._page.locator("select#price-lte-desktop").select_option(str(origin_query.price_max))
+        sleep(settle)
+        logger.info("price set to %s - %s", origin_query.price_min, origin_query.price_max)
 
         age_loc = self._page.locator("li#age-desktop")
         age_loc.click()
         age_from_opts = age_loc.locator("select#age-gte-desktop option").all()
         # TODO: make this base method, also what if value is not in any of the options?
-        age_from_2020_opt_value = [opt.get_attribute('value') for opt in age_from_opts if "2020 " in opt.text_content().strip() ][0]
-        age_loc.locator("select#age-gte-desktop").select_option(age_from_2020_opt_value)
-        sleep(2)
-        logger.info("age from set to ...")
+        age_from_opt_value = [opt.get_attribute('value') for opt in age_from_opts if f"{origin_query.age_from} " in opt.text_content().strip() ][0]
+        age_loc.locator("select#age-gte-desktop").select_option(age_from_opt_value)
+        sleep(settle)
+        logger.info("age from set to %s", origin_query.age_from)
 
         age_to_opts = age_loc.locator("select#age-lte-desktop option").all()
-        age_to_2024_opt_value = [opt.get_attribute('value') for opt in age_to_opts if "2024 " in opt.text_content().strip() ][0]
-        age_loc.locator("select#age-lte-desktop").select_option(age_to_2024_opt_value)
-        sleep(2)
-        logger.info("age to set to ...")
+        age_to_opt_value = [opt.get_attribute('value') for opt in age_to_opts if f"{origin_query.age_to} " in opt.text_content().strip() ][0]
+        age_loc.locator("select#age-lte-desktop").select_option(age_to_opt_value)
+        sleep(settle)
+        logger.info("age to set to %s", origin_query.age_to)
 
         self._page.locator("li#fuel_type-desktop").click()
-        self._page.get_by_label("Petrol").first.click()
-        sleep(2)
-        self._page.get_by_label("Hybrid").first.click()
-        sleep(2)
-        logger.info("fuel to set to ...")
+        for fuel_type in origin_query.fuel_types:
+            self._page.get_by_label(fuel_type).first.click()
+            sleep(settle)
+        logger.info("fuel to set to %s", origin_query.fuel_types)
 
         self._page.locator("li#gearbox-desktop").click()
-        self._page.locator("li#gearbox-desktop").get_by_text("Automatic").first.click()
-        logger.info("transmission to set to ...")
+        self._page.locator("li#gearbox-desktop").get_by_text(origin_query.transmission).first.click()
+        logger.info("transmission to set to %s", origin_query.transmission)
 
         logger.info("Initiated the search.")
 

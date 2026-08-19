@@ -3,3 +3,8 @@ name = "base-used-car-listing-parser"
 version = "0.1.0"
 description = "ABCs and repo pattern for used car listing scraping apps"
 requires-python = "==3.12.3"
+dependencies = [
+    "pydantic>=2.13.3",
+    "sqlalchemy>=2.0",
+    "serespar[postgres]"
+]

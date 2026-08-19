@@ -19,7 +19,11 @@ services:
       - PER_TASK_COOKIES
       - PROJECT
       - PARSER
-      - ${TASK:-default}
+      # `TaskConfig.task_id` reads this, and the app builder will too. Same
+      # default as the task env file picked above.
+      - TASK=${TASK:-default}
+      # kept out of the task's env file on purpose, see the comment in it
+      - SERESPAR_ORIGIN_QUERY__POSTCODE
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ./init.sh:/init.sh

@@ -4,7 +4,17 @@ from playwright.sync_api import sync_playwright
 import json
 import logging
 
+from .exceptions import SeresparException
+
 logger = logging.getLogger(__name__)
+
+
+class AuthenticationFailedException(SeresparException):
+    """The `AuthFlow` could not authenticate against the target site.
+
+    TODO: raised once the `AuthFlow` hierarchy exists; the manual
+    `LoginProcess` below just waits for the success URL forever.
+    """
 
 @contextmanager
 def save_login_cookies(login_url: str, success_url: str, auth_material_file: str|Path = "cookies.json"):
