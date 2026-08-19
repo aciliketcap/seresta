@@ -6,7 +6,7 @@ from .parsing_session import (
     StaleAuthMaterialException,
 )
 from .cookie_saver import save_login_cookies, AuthenticationFailedException
-from .base_repos import AbstractBaseRepository, SessionRepositoryException
+from .base_repos import AbstractBaseRepository, ParsedEntity, SessionRepositoryException
 from .base_extractor import (
     SessionTracker,
     BaseExtractor,
@@ -35,6 +35,7 @@ __all__ = [
     "ParsingSession",
     "save_login_cookies",
     "AbstractBaseRepository",
+    "ParsedEntity",
     "BaseExtractor",
     "SessionTracker",
     # config layers, see config.py

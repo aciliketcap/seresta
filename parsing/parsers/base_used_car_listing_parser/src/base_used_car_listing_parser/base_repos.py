@@ -1,26 +1,42 @@
-"""A model of the info in the car cards. Called raw because the listing is not processed yet."""
-from serespar.base_repos import AbstractBaseRepository
+"""A model of the info in the car cards. Called raw because the listing is not processed yet.
 
+Only what is specific to used car listings lives here: the `Source` enum and
+its seed data, the domain fields of a listing, and the repository bound to
+them. The `source` and `parsing_session` tables, the shared columns of an
+`EntityOrmRecord`, the joining table and the add/get logic all come from
+serespar -- see `serespar/db/orm.py` and `serespar/db/repos.py`.
+"""
 import abc
 import logging
-from datetime import datetime
 from enum import IntEnum
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic_core import Url
-from sqlalchemy import (
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    UniqueConstraint,
-    select,
+from pydantic import Field
+from serespar.base_repos import AbstractBaseRepository, ParsedEntity
+from serespar.db.orm import (
+    AbstractParsedEntityInParsingSessionORM,
+    AbstractParsedEntityORM,
+    ParsingSessionORM,
+    SourceORM,
 )
+from serespar.db.repos import SessionReportRepository, SqlAlchemyEntityRepository
+from serespar.db import repos as serespar_repos
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, Session, mapped_column, sessionmaker
 
-from .db import Base
-
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "AbstractBaseRawUsedCarListingRepository",
+    "BaseRawUsedCarListing",
+    "BaseRawUsedCarListingORM",
+    "BaseRawUsedCarListingSqlAlchemyRepository",
+    "ParsedEntityInParsingSessionORM",
+    "ParsingSessionORM",
+    "SessionReportRepository",
+    "Source",
+    "SourceORM",
+    "seed_sources",
+]
 
 
 class Source(IntEnum):
@@ -31,8 +47,8 @@ class Source(IntEnum):
     concrete listing ORM. They are fixed per app base / db schema.
 
     The value ``0`` is reserved as the polymorphic-identity sentinel for the
-    base (non-subclassed) ``raw_used_car_listing`` rows — see
-    ``BaseRawUsedCarListingORM.__mapper_args__`` — so concrete members must
+    base (non-subclassed) ``raw_used_car_listing`` rows -- see
+    ``serespar.db.orm.BASE_POLYMORPHIC_IDENTITY`` -- so concrete members must
     start at ``1`` and never use ``0``.
     """
 
@@ -63,70 +79,20 @@ SOURCE_SEED: dict[Source, tuple[str, str, str]] = {
 }
 
 
-class SourceORM(Base):
-    """A website we scrape used car listings from.
-
-    The same physical website may appear as multiple rows here with different
-    ``origin_url`` values (different saved searches/filters); ``name`` is the
-    unique key and corresponds to a member of the :class:`Source` enum.
-    """
-
-    __tablename__ = "source"
-
-    # id is only used for joining; it is seeded from the Source enum.
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
-    name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    origin_url: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
-class ParsingSessionORM(Base):
-    """One `ParsingSession` run against a single source.
-
-    The row is the identity of the session, and its start/end dates are the
-    beginnings of the session's `SessionReport`. See the `SessionReport` entry
-    in ``parsing/docs/glossary.md``.
-    """
-
-    __tablename__ = "parsing_session"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    start_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    source: Mapped[int] = mapped_column(
-        ForeignKey("source.id"), nullable=False
-    )
-
-
-class ParsedEntityInParsingSessionORM(Base):
-    """Joining table: a parsed entity that was found in a parsing session."""
+class ParsedEntityInParsingSessionORM(AbstractParsedEntityInParsingSessionORM):
+    """Joining table: a listing that was found in a parsing session."""
 
     __tablename__ = "parsed_entity_in_parsing_session"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    parsed_entity_id: Mapped[int] = mapped_column(
-        ForeignKey("raw_used_car_listing.id", ondelete="CASCADE"), nullable=False
-    )
-    parsing_session_id: Mapped[int] = mapped_column(
-        ForeignKey("parsing_session.id"), nullable=False
-    )
+    PARSED_ENTITY_TABLE = "raw_used_car_listing"
 
 
-class BaseRawUsedCarListing(BaseModel):
+class BaseRawUsedCarListing(ParsedEntity):
     """A used car listing as it was initially extracted (therefore raw)"""
-    model_config = ConfigDict(from_attributes=True)
 
-    # Assigned by the database (autoincrement); unset until persisted.
-    id: int | None = Field(default=None, description="Database primary key")
     # Typed as ``Source`` (an IntEnum), not ``int``, so pydantic rejects
     # values that don't correspond to a seeded source row at construction time.
     source: Source = Field(description="FK to the source table (see Source enum)")
-    result_id: str = Field(description="The listing's own id within the source website")
-    last_found_in: int | None = Field(
-        default=None,
-        description="FK to the parsing session in which this listing was last found",
-    )
-    url: Url = Field(description="The URL of the used car listing")
     make: str = Field(description="The make of the used car")
     model: str = Field(description="The model of the used car")
     trim: str = Field(description="The trim of the used car")
@@ -139,24 +105,12 @@ class BaseRawUsedCarListing(BaseModel):
     range: int|None = Field(description="The range of the used car (electric)")
     location: str|None = Field(description="The location of the used car")
 
-class BaseRawUsedCarListingORM(Base):
+
+class BaseRawUsedCarListingORM(AbstractParsedEntityORM):
     """SQLAlchemy ORM mapping for ``BaseRawUsedCarListing`` (joined-table inheritance root)."""
 
     __tablename__ = "raw_used_car_listing"
 
-    # result_id is unique within a source (the discriminator column), so the same
-    # listing id appearing on two different sources doesn't collide.
-    __table_args__ = (
-        UniqueConstraint("source", "result_id", name="uq_raw_used_car_listing_source_result_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    source: Mapped[int] = mapped_column(ForeignKey("source.id"), nullable=False)
-    result_id: Mapped[str] = mapped_column(String, nullable=False)
-    last_found_in: Mapped[int | None] = mapped_column(
-        ForeignKey("parsing_session.id"), nullable=True
-    )
-    url: Mapped[str] = mapped_column(String, nullable=False)
     make: Mapped[str] = mapped_column(String, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)
     trim: Mapped[str] = mapped_column(String, nullable=False)
@@ -169,13 +123,6 @@ class BaseRawUsedCarListingORM(Base):
     range: Mapped[int|None] = mapped_column(Integer, nullable=True)
     location: Mapped[str|None] = mapped_column(String, nullable=True)
 
-    __mapper_args__ = {
-        "polymorphic_on": "source",
-        # Sentinel identity for plain (non-subclassed) BaseRawUsedCarListing rows.
-        # Real sources (Source.CARWOW, ...) override this on the ORM subclass with
-        # their seeded source id.
-        "polymorphic_identity": 0,
-    }
 
 class AbstractBaseRawUsedCarListingRepository(
     AbstractBaseRepository[BaseRawUsedCarListing]):
@@ -189,97 +136,13 @@ class AbstractBaseRawUsedCarListingRepository(
 
 
 # Setting it into stone that an sqlalchemy repo will exist eventually is for convenience. But it is also unnecessary rigidity, bringing in sqlalchemy dependency to all sub-projects.
-class BaseRawUsedCarListingSqlAlchemyRepository(AbstractBaseRawUsedCarListingRepository):
-    # Subclasses override these with their concrete ORM + Pydantic classes.
-    ORM: type[BaseRawUsedCarListingORM] = BaseRawUsedCarListingORM
-    PYDANTIC: type[BaseRawUsedCarListing] = BaseRawUsedCarListing
-
-    def __init__(self, sm: sessionmaker[Session]) -> None:
-        self._sm = sm
-
-    def add(self, parsed_entity: BaseRawUsedCarListing) -> None:
-        # One transaction for the dedup check + insert + join-row write, so
-        # there's no TOCTOU window between "is this result_id already there?"
-        # and the insert.
-        # A polymorphic query on the concrete ORM only matches rows of this
-        # source, so checking result_id here is effectively per-source.
-        with self._sm.begin() as session:
-            existing = session.scalar(
-                select(self.ORM).where(self.ORM.result_id == parsed_entity.result_id)
-            )
-            if existing is not None:
-                # TODO: when a listing already exists we should update its
-                # last_found_in and link it to the current parsing session. For now
-                # we just log the situation and move on to the next result.
-                logger.info(
-                    "Used car listing result_id=%s from source=%s already exists "
-                    "(id=%s); skipping (dedup handling not implemented yet).",
-                    parsed_entity.result_id,
-                    parsed_entity.source,
-                    existing.id,
-                )
-                return
-
-            # mode="json" so pydantic_core.Url becomes str for the String column.
-            # id is unset (autoincrement), so exclude it from the insert.
-            orm = self.ORM(**parsed_entity.model_dump(mode="json", exclude={"id"}))
-            session.add(orm)
-            session.flush()  # populate orm.id for the joining-table row
-            if parsed_entity.last_found_in is not None:
-                session.add(
-                    ParsedEntityInParsingSessionORM(
-                        parsed_entity_id=orm.id,
-                        parsing_session_id=parsed_entity.last_found_in,
-                    )
-                )
-
-    def get(self, entity_id: int) -> BaseRawUsedCarListing | None:
-        with self._sm() as session:
-            # Polymorphism returns the concrete ORM subclass; model_validate
-            # then yields the matching Pydantic subclass.
-            row = session.get(self.ORM, entity_id)
-            return self.PYDANTIC.model_validate(row) if row is not None else None  # type: ignore[return-value]
-
-
-class SessionReportRepository:
-    """Creates and closes the ``parsing_session`` row of the current run.
-
-    Its start and end dates are the beginnings of the session's `SessionReport`;
-    see that entry in ``parsing/docs/glossary.md``. Not to be confused with the
-    glossary's `SessionRepository`, which is where the extracted entities go.
-    """
-
-    def __init__(self, sm: sessionmaker[Session]) -> None:
-        self._sm = sm
-
-    def start(self, source_id: int) -> int:
-        """Open a parsing session with a start date and return its new id."""
-        with self._sm.begin() as session:
-            parsing_session = ParsingSessionORM(start_date=datetime.now(), source=source_id)
-            session.add(parsing_session)
-            session.flush()
-            return parsing_session.id
-
-    def end(self, parsing_session_id: int) -> None:
-        """Stamp the end date on an open parsing session."""
-        with self._sm.begin() as session:
-            parsing_session = session.get(ParsingSessionORM, parsing_session_id)
-            if parsing_session is not None:
-                parsing_session.end_date = datetime.now()
+class BaseRawUsedCarListingSqlAlchemyRepository(SqlAlchemyEntityRepository[BaseRawUsedCarListing]):
+    # Subclasses override the first two with their concrete ORM + Pydantic classes.
+    ORM = BaseRawUsedCarListingORM
+    PYDANTIC = BaseRawUsedCarListing
+    JOIN_ORM = ParsedEntityInParsingSessionORM
 
 
 def seed_sources(sm: sessionmaker[Session]) -> None:
     """Idempotently seed the ``source`` table from the :class:`Source` enum."""
-    with sm.begin() as session:
-        for source in Source:
-            if session.get(SourceORM, int(source)) is not None:
-                continue
-            name, origin_url, description = SOURCE_SEED[source]
-            session.add(
-                SourceORM(
-                    id=int(source),
-                    name=name,
-                    origin_url=origin_url,
-                    description=description,
-                )
-            )
+    serespar_repos.seed_sources(sm, SOURCE_SEED)

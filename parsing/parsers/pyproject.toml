@@ -7,7 +7,7 @@ dependencies = [
     "pydantic>=2.13.3",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
-    "serespar",
+    "serespar[postgres]",
     "base_job_postings_parser",
     "base_used_car_listing_parser"
 ]

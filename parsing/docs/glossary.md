@@ -212,11 +212,17 @@ barriers once those are built. A barrier that fails surfaces a raw
 * **`ResultLocator`** — the Playwright representation of the physical HTML node.
   What `ParsingSession.results_in_pagination_batch()` yields and what
   `BaseExtractor._result_locator` holds.
-* **`ParsedEntity`** — the pure domain object (a pydantic model):
-  `BaseRawUsedCarListing`, `BaseRawJobPosting` and their per-site subclasses.
-  `ParsedEntityT` is the type variable bounding it.
-* **`EntityOrmRecord`** — the persistence representation: `BaseRawUsedCarListingORM`,
-  `BaseRawJobPostingORM` and the joined-table subclasses.
+* **`ParsedEntity`** — the pure domain object (a pydantic model).
+  `serespar/base_repos.py` holds the base with the fields every project has
+  (`id`, `source`, `result_id`, `last_found_in`, `url`); `BaseRawUsedCarListing`
+  adds the car fields and narrows `source` to the project's `Source` enum, and
+  the per-site subclasses add theirs. `ParsedEntityT` is the type variable
+  bounding it. (`BaseRawJobPosting` still carries its own copy of the shared
+  fields; the job postings project has not been moved over.)
+* **`EntityOrmRecord`** — the persistence representation:
+  `AbstractParsedEntityORM` in `serespar/db/orm.py` carries the shared columns
+  and the polymorphic mapper args, `BaseRawUsedCarListingORM` sets the table
+  name and the car columns, and the per-site ORMs join onto it.
 * **`BaseExtractor`** — `serespar/base_extractor.py`. The abstract foundation for
   all extraction logic; a context manager that turns a `ResultLocator` into a
   `ParsedEntity` and hands it to the repository, with the `critical_info` /
@@ -269,9 +275,10 @@ error.
   `TaskConfig.max_depth` (`SERESPAR_MAX_DEPTH`), which falls back to the
   project's `default_max_depth`.
 * **`SessionReport`** — the start date, end date and source recorded on
-  `ParsingSessionORM` / the `parsing_session` table, written by
-  `SessionReportRepository`. There is no report *object* yet; the row is the
-  identity of the session, and these columns are the beginnings of its report.
+  `ParsingSessionORM` / the `parsing_session` table (both in serespar now),
+  written by `SessionReportRepository` in `serespar/db/repos.py`. There is no
+  report *object* yet; the row is the identity of the session, and these
+  columns are the beginnings of its report.
 
   **Naming decision.** The row names the session, not a report about it —
   `parsed_entity_in_parsing_session` and `raw_*.last_found_in` both point at it
@@ -303,6 +310,25 @@ element.
   project (`AbstractBaseRawUsedCarListingRepository`,
   `AbstractBaseRawJobPostingRepository`) and implemented on SQLAlchemy
   (`BaseRawUsedCarListingSqlAlchemyRepository` and its per-site subclasses).
+
+* **Postgres bootstrap** — `serespar/db/postgres.py`. Building the `Engine`
+  from the `ProjectConfig` layer and the Docker secrets, the `sessionmaker`,
+  and `init_schema`. Shared by every project; the driver packages are the
+  optional `serespar[postgres]` extra, and nothing in `serespar/__init__.py`
+  imports the module.
+* **The declarative `Base`** — `serespar/db/orm.py`, one for everybody. Each
+  project has its own database, so identical table names across projects never
+  meet. `init_schema` creates that base's tables by default.
+* **Shared tables** — `SourceORM` (`source`) and `ParsingSessionORM`
+  (`parsing_session`) are the same everywhere and are concrete in
+  `serespar/db/orm.py`. `AbstractParsedEntityInParsingSessionORM` is abstract
+  only because its foreign key points at the project's own entity table, which
+  the subclass names in `PARSED_ENTITY_TABLE`.
+* **`SqlAlchemyEntityRepository`** — `serespar/db/repos.py`. The dedup-check,
+  insert and join-row write every project's repository does;
+  `BaseRawUsedCarListingSqlAlchemyRepository` only points it at the concrete
+  ORM, pydantic and joining classes. `SessionReportRepository` and
+  `seed_sources` live there too, the latter taking the project's seed mapping.
 
 **Not in the code yet:** `SessionRepository` in the glossary's sense — bound to
 the lifecycle of the current `ParsingSession`, staging entities in memory and
