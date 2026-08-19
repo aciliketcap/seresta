@@ -3,8 +3,18 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from .exceptions import SeresparException
+
 # Pydantic BaseModel variant type: the domain object a parser produces.
 ParsedEntityT = TypeVar('ParsedEntityT', bound=BaseModel)
+
+
+class SessionRepositoryException(SeresparException):
+    """The repository could not store a `ParsedEntity`.
+
+    TODO: raised once the session-bound `SessionRepository` exists; ORM and
+    driver errors leak straight out to the orchestrator today.
+    """
 
 class AbstractBaseRepository[ParsedEntityT](abc.ABC):
     """The repository a `ParsedEntity` is handed to for persistence.

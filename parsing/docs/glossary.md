@@ -10,6 +10,13 @@ business-specific terms (`car card`, `job posting`, `deal-card`, ...) and link
 back here. On disk a Domain is carried by a *project* — see
 [Project vs Domain](#project-vs-domain).
 
+**Exceptions** all derive from `SeresparException` in
+`serespar/exceptions.py`; every subclass lives in the module whose code raises
+it -- except the two sync-barrier timeouts, whose component does not exist yet,
+which wait in `exceptions.py`. `serespar/__init__.py` re-exports all of them.
+They are listed with their section here rather than in a section of their own.
+Several are declared ahead of the component that will raise them; those say so.
+
 **How to read this:** each section lists the terms that exist in code, with
 where to find them, followed by the terms from the same section that are still
 only names. The latter are the backlog for the architecture follow-up; each one
@@ -35,11 +42,14 @@ open-coded.
   implementation just navigates to the `OriginUrl`; carwow overrides it to fill
   the filter forms by hand.
 
+* **`QueryProcessException`** — `serespar/parsing_session.py`. Declared;
+  nothing raises it yet.
+
 **Not in the code yet:** `ParsingTask` (exists only as a `<task>.env` file and
 the `TASK` variable), `ParsingSessionBuilder` (there is no DI — each parser's
-`__main__.py` hand-wires everything), `ConfigurationException`,
-`QueryProcessException`. `OriginQueryProcess` is a method on the session rather
-than an injectable component that takes an `OriginQuery`.
+`__main__.py` hand-wires everything), `ConfigurationException`.
+`OriginQueryProcess` is a method on the session rather than an injectable
+component that takes an `OriginQuery`.
 
 ## 2. Authentication & Security
 
@@ -48,10 +58,15 @@ than an injectable component that takes an `OriginQuery`.
   browser context, `serespar.save_login_cookies()` writes it, and the parsers
   point at it with `AUTH_MATERIAL_FILE` / `--auth-material-path`.
 
+* **`StaleAuthMaterialException`** — `serespar/parsing_session.py`. Raised by
+  `ParsingSession.__enter__` when the cookie file cannot be loaded into the
+  browser context.
+* **`AuthenticationFailedException`** — `serespar/cookie_saver.py`, next to the
+  manual `LoginProcess`. Declared; nothing raises it yet.
+
 **Not in the code yet:** the whole `AuthFlow` hierarchy — `NoAuthFlow`,
 `ActiveFlow`, `LoginProcess`, `AuthCredentials`, `PassiveFlow`,
-`CookiePassiveFlow`, `RefreshTokenPassiveFlow` — plus
-`AuthenticationFailedException` and `StaleAuthMaterialException`. Today
+`CookiePassiveFlow`, `RefreshTokenPassiveFlow`. Today
 `ParsingSession` injects a cookie file directly, which is a hardwired
 `CookiePassiveFlow` with no abstraction; `save_login_cookies` is a manual
 `LoginProcess` where the developer types the credentials into the browser
@@ -115,9 +130,11 @@ biggest piece of the follow-up:
 * **`DelayBehavior`** — bare `sleep(...)` calls in every parser. No humanising
   pattern, no dummy clicks or mouse jigs.
 
-**Not in the code yet:** also `BatchLoadTimeoutException` and
-`ElementRenderTimeoutException`; a barrier that fails currently surfaces a raw
-`playwright.TimeoutError`.
+**`BatchLoadTimeoutException`** and **`ElementRenderTimeoutException`** are
+declared in `serespar/exceptions.py` -- the only two that are not with the code
+that raises them, because that code does not exist yet. They move next to the
+barriers once those are built. A barrier that fails surfaces a raw
+`playwright.TimeoutError` today.
 
 ## 5. Traversal & Extraction
 
@@ -148,15 +165,22 @@ markup). `AbstractBaseRepository.get(entity_id)` takes the *repository's* own
 primary key (an integer). The old code called both `seres_id`, which is exactly
 the confusion this glossary is meant to remove.
 
+* **`ParsingError`** — `serespar/base_extractor.py`. Raised by `BaseExtractor`
+  when a field cannot be read out of the markup.
+  **`ExtractionCriticalError`** wraps whatever a `critical_info`-decorated
+  method raised, and sinks the whole `ParsedEntity`.
+* **`NodeNotFoundException`**, **`EmptyLocatorException`**,
+  **`UnmatchedSelectorException`** — `serespar/base_extractor.py`. The three cases
+  `ParsingError` is meant to split into, so they subclass it: extractors still
+  raise the undifferentiated `ParsingError`, and an `except ParsingError` keeps
+  catching all three once they start being raised separately.
+  `pydantic.ValidationError` does arrive natively when extracted data violates
+  a `ParsedEntity`'s schema, so there is no serespar exception for that.
+
 **Not in the code yet:** `TotalResultIndex` (nothing counts across batches),
 `EntityJsonRecord`, the `SurfaceExtractor` / `ExpansionExtractor` /
 `NewTabExtractor` split (carwow is a `SurfaceExtractor` by hand; LinkedIn is an
-`ExpansionExtractor` split between its session and its extractor), and the
-exception taxonomy `NodeNotFoundException` / `EmptyLocatorException` /
-`UnmatchedSelectorException` — today all three collapse into one `ParsingError`,
-which `ExtractionCriticalError` wraps when the field was critical.
-`pydantic.ValidationError` does arrive natively when extracted data violates a
-`ParsedEntity`'s schema.
+`ExpansionExtractor` split between its session and its extractor).
 
 ## 6. Navigation
 
@@ -171,9 +195,10 @@ which `ExtractionCriticalError` wraps when the field was critical.
 **Not in the code yet:** `PaginationBatchStepper` as a component — every parser
 reimplements "walk the pagination links, find the one whose text is current + 1,
 click it" (carwow's `step_to_next_pagination_batch()` is the closest thing, and
-it never verifies that the new batch actually loaded). Also
-`PaginationControlMissingException`: carwow just logs and retries, and the test
-session raises a local error.
+it never verifies that the new batch actually loaded).
+`PaginationControlMissingException` is declared in `serespar/parsing_session.py`
+but unraised: carwow just logs and retries, and the test session raises a local
+error.
 
 ## 7. Flow Control & Termination
 
@@ -192,8 +217,9 @@ session raises a local error.
 **Not in the code yet:** `SessionTracker` in its real, session-scoped form —
 `ParsingSession.num_failed_results` is all we track, and nothing answers "should
 we stop?"; `MaxDepth` is just a loop bound the caller passes. The report is never
-emitted anywhere beyond the row. `AccessBlockerEncounteredException` does not
-exist: a CAPTCHA or unexpected login prompt just times out like any other missing
+emitted anywhere beyond the row. `AccessBlockerEncounteredException` is
+declared in `serespar/parsing_session.py` but nothing detects the condition: a
+CAPTCHA or unexpected login prompt just times out like any other missing
 element.
 
 ## 8. Persistence
@@ -218,5 +244,5 @@ element.
 the lifecycle of the current `ParsingSession`, staging entities in memory and
 guaranteeing a final flush. The SQLAlchemy repositories are not session-bound
 and open a transaction per `add()`, so there is no batch semantics and no final
-flush. `SessionRepositoryException` does not exist either: ORM and driver errors
-leak straight out to the orchestrator.
+flush. `SessionRepositoryException` is declared in `serespar/base_repos.py`, but
+until then ORM and driver errors leak straight out to the orchestrator.

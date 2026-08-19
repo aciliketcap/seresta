@@ -8,8 +8,37 @@ from typing import Generator, Any, Self
 
 from playwright.sync_api import Locator, sync_playwright, Browser, Page, ViewportSize
 
+from .exceptions import SeresparException
+
 
 logger = logging.getLogger(__name__)
+
+
+class StaleAuthMaterialException(SeresparException):
+    """The `AuthMaterial` exists but is expired, malformed or rejected."""
+
+
+class QueryProcessException(SeresparException):
+    """The `OriginQueryProcess` could not turn the `OriginQuery` into results.
+
+    TODO: raised once `process_origin_query` checks that results actually came
+    up; the base implementation only navigates.
+    """
+
+
+class PaginationControlMissingException(SeresparException):
+    """The `NextPaginationTrigger` is not on the page.
+
+    TODO: raised once `pagination_batches` steps through a
+    `PaginationBatchStepper`; parsers log and retry today.
+    """
+
+
+class AccessBlockerEncounteredException(SeresparException):
+    """A CAPTCHA, consent wall or unexpected login prompt is in the way.
+
+    TODO: nothing detects these yet; they time out like any missing element.
+    """
 
 DEFAULT_VIEWPORT_WIDTH = 1600
 DEFAULT_VIEWPORT_HEIGHT = 1000
@@ -104,9 +133,10 @@ class ParsingSession():
                     context.add_cookies(json.loads(auth_material_file.read()))
             except Exception as err:
                 logger.exception("Unable to get the auth material (cookies)")
-                # TODO: this should be a StaleAuthMaterialException once the
-                # AuthFlow hierarchy exists.
-                raise Exception from err
+                raise StaleAuthMaterialException(
+                    f"Unable to enter the site with the auth material at "
+                    f"{self._auth_material_path}"
+                ) from err
 
         self._page: Page = context.new_page()
         

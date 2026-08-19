@@ -7,14 +7,43 @@ from typing import Self, TypeVar
 from playwright.sync_api import Locator, Page
 
 from .base_repos import ParsedEntityT
+from .exceptions import SeresparException
 
 logger = logging.getLogger(__name__)
 
-class ExtractionCriticalError(Exception):
-    pass
 
-class ParsingError(Exception):
-    pass
+class ParsingError(SeresparException):
+    """A field could not be read out of the markup.
+
+    The catch-all of the extraction section: the three exceptions below are the
+    cases it is meant to split into, and the methods here still raise this
+    undifferentiated form for all of them.
+    """
+
+
+class ExtractionCriticalError(SeresparException):
+    """A *critical* field failed, so the whole `ParsedEntity` is discarded.
+
+    Wraps whatever the `critical_info`-decorated method raised.
+    """
+
+
+class NodeNotFoundException(ParsingError):
+    """The HTML node a selector points at is not in the DOM."""
+
+
+class EmptyLocatorException(ParsingError):
+    """The locator resolved to a node, but it carries no content."""
+
+
+class UnmatchedSelectorException(ParsingError):
+    """The selector matched nothing at all -- usually a site layout change."""
+
+
+# Note: pydantic.ValidationError is used natively for `ParsedEntity` structural
+# failures, so serespar deliberately has no exception of its own for those.
+
+
 @dataclass
 class SessionTracker:
     """Where we are in the parsing process, used for logging and error reporting.
