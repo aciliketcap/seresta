@@ -45,9 +45,10 @@ Secrets are deliberately absent: `ProjectSecrets` / `ParserSecrets` /
 `TaskSecrets` stay out of these models, and credentials keep coming from Docker
 secrets (see `serespar/db/postgres.py`).
 
-TODO: `ConfigCascade.from_env()` is a bridge. Once app initialisation is done
-with dependency injection the layers get built and injected there, and nothing
-needs to read the environment at the point of use.
+**Who resolves it.** The composition root, and only there: `ParserBuilder`
+builds each layer, flattens the cascade once, up front, and injects the
+resulting `EffectiveConfig` into everything it assembles (see `builder.py`).
+Nothing reads a layer, or the environment, at the point of use.
 """
 
 from typing import Any, Self, TypeVar
@@ -174,11 +175,6 @@ class ParserSettings(BaseSettings, ParserConfig):
 EffectiveConfigT = TypeVar("EffectiveConfigT", bound=EffectiveConfig)
 
 
-def _built(layer: Any, default_cls: type[BaseModel]) -> BaseModel:
-    """A layer instance, from an instance, a class, or the default class."""
-    candidate = default_cls if layer is None else layer
-    return candidate() if isinstance(candidate, type) else candidate
-
 # The four layer models of the hierarchy. A layer object is usually an instance
 # of a *subclass* of one of these -- that subclass is where a project or parser
 # states its own opinions, which is what `_fields_owned_by` looks for.
@@ -203,38 +199,17 @@ def _fields_owned_by(layer: BaseModel) -> set[str]:
 class ConfigCascade(BaseModel):
     """The layers of one run, and the merge that flattens them.
 
-    Every layer is optional so a caller can resolve what it has -- but
-    resolution fails if the layers between them do not supply the fields that
-    have no default (`db_host`, `db_name`, `base_origin_url`, `task_id`),
-    unless the environment does.
+    Every layer is optional so an application can resolve what it has -- a
+    parser with no database of its own has no project layer -- but resolution
+    fails if what is left does not supply the fields that have no default
+    (`db_host`, `db_name`, `base_origin_url`, `task_id`).
+
+    `ParserBuilder` is what fills this in; see `builder.py`.
     """
     core: CoreConfig = Field(default_factory=CoreConfig)
     project: ProjectConfig | None = None
     parser: ParserConfig | None = None
     task: TaskConfig | None = None
-
-    @classmethod
-    def from_env(cls, **layers: Any) -> Self:
-        """Build the cascade by reading each layer from the environment.
-
-        The bridge until app initialisation is done with dependency injection:
-        a project or parser names the layer classes it has
-        (`ConfigCascade.from_env(parser=CarWowParserConfig)`, an instance works
-        too) and the rest are serespar's, each read under its `SERESPAR_`
-        names. A layer the environment cannot satisfy raises
-        `ConfigurationException` here rather than a bare pydantic error.
-        """
-        try:
-            return cls(
-                core=_built(layers.get("core"), CoreSettings),
-                project=_built(layers.get("project"), ProjectSettings),
-                parser=_built(layers.get("parser"), ParserSettings),
-                task=_built(layers.get("task"), TaskConfig),
-            )
-        except ValidationError as err:
-            raise ConfigurationException(
-                f"A config layer could not be read from the environment: {err}"
-            ) from err
 
     def layers(self) -> list[BaseModel]:
         """The layers that are present, most general first."""
