@@ -8,7 +8,7 @@ services:
     environment:
       - DISPLAY
       # unset on the host means headless, which is what CI wants
-      - SERESPAR_HEADED
+      - SERESPAR_HEADLESS
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./../serespar/:/opt/serespar

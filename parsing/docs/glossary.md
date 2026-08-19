@@ -33,30 +33,36 @@ open-coded.
   (`BaseUsedCarListingParsingSession`, `BaseJobPostingsParsingSession`) and then
   per site (`CarWowParsingSession`, ...).
 * **`OriginUrl`** — the base web address where the session enters the target
-  website. The `origin_url` constructor argument of `ParsingSession`, the
-  `ORIGIN_URL` variable in a parser's `.env`, and the `source.origin_url` column.
+  website. The `origin_url` constructor argument of `ParsingSession`,
+  `ParserConfig.base_origin_url` (`SERESPAR_BASE_ORIGIN_URL` in a parser's
+  `.env`), and the `source.origin_url` column.
 * **`OriginQuery`** — the domain representation of the search parameters. Only
-  carwow has one so far (`carwow_used_car_listing_parser.OriginQuery`), holding
-  the postcode.
+  carwow has one so far: `CarWowOriginQuery` in
+  `carwow_used_car_listing_parser/config.py`, holding the postcode, the price
+  range, the age range, the fuel types and the transmission, i.e. everything
+  `process_origin_query` types into the filter forms.
 * **`OriginQueryProcess`** — `ParsingSession.process_origin_query()`. The base
   implementation just navigates to the `OriginUrl`; carwow overrides it to fill
   the filter forms by hand.
 
+* **`ConfigurationException`** — `serespar/config.py`. Raised when the config
+  layers do not add up to a usable configuration, and when the Postgres
+  bootstrap is missing an environment variable.
 * **`QueryProcessException`** — `serespar/parsing_session.py`. Declared;
   nothing raises it yet.
 
 **Not in the code yet:** `ParsingTask` (exists only as a `<task>.env` file and
 the `TASK` variable), `ParsingSessionBuilder` (there is no DI — each parser's
-`__main__.py` hand-wires everything), `ConfigurationException`.
-`OriginQueryProcess` is a method on the session rather than an injectable
-component that takes an `OriginQuery`.
+`__main__.py` hand-wires everything). `OriginQueryProcess` is a method on the
+session rather than an injectable component that takes an `OriginQuery`.
 
 ## 2. Authentication & Security
 
 * **`AuthMaterial`** — the tangible proof of authentication. In practice a
   cookie file: `ParsingSession(auth_material_path=...)` loads it into the
-  browser context, `serespar.save_login_cookies()` writes it, and the parsers
-  point at it with `AUTH_MATERIAL_FILE` / `--auth-material-path`.
+  browser context, `serespar.save_login_cookies()` writes it, and a parser
+  says where it is with `auth_material_path` on its config layer (carwow) or
+  `--auth-material-path` (the parsers not moved over yet).
 
 * **`StaleAuthMaterialException`** — `serespar/parsing_session.py`. Raised by
   `ParsingSession.__enter__` when the cookie file cannot be loaded into the
@@ -74,9 +80,52 @@ themselves.
 
 ## 3. Configuration & Cascading Hierarchy
 
-The layered configuration and secrets, cascading `Project` -> `Parser` -> `Task`.
-The cascade exists, but only as directory layout and env files — there are no
-config objects.
+The layered configuration and secrets, cascading `Core` -> `Project` ->
+`Parser` -> `Task`, where a more specific layer overrides a more general one.
+
+* **`CoreConfig`**, **`ProjectConfig`**, **`ParserConfig`**, **`TaskConfig`** —
+  `serespar/config.py`. One pydantic model per layer, in serespar because every
+  derived component has them. `CoreConfig` supersedes the `EngineConfig` name of
+  the original glossary. `TaskConfig` is a `pydantic_settings.BaseSettings`, so
+  one run's parameters can come straight from the environment with the
+  `SERESPAR_` prefix.
+* **`ConfigCascade`** / **`EffectiveConfig`** — `serespar/config.py`.
+  `ConfigCascade.resolve()` merges the four layers, most general first, into the
+  flat `EffectiveConfig` the rest of the code reads. Only values *explicitly
+  set* on a layer override the layers below, so a field left at its default
+  never clobbers a configured one — the same rule Docker Compose applies to
+  layered `env_file`s. To override a lower layer's field, subclass that layer's
+  model and redeclare it; `EffectiveConfig` accepts the extra fields. A layer
+  set that does not add up raises `ConfigurationException`.
+* **`MaxDepth` across layers** — the project sets `default_max_depth`, a task
+  overrides it with `max_depth`, and after resolution `max_depth` is the single
+  answer.
+* **Where defaults live** — on the config models, never as literals at the
+  point of use. `CoreConfig` carries the viewport size and the absolute
+  timeout, `ProjectConfig` the Postgres port and sslmode,
+  `CarWowParserConfig` the waits, the retry counts and how deep to paginate.
+  Code reads them off the resolved config.
+* **Per project and per parser layers** —
+  `base_used_car_listing_parser/config.py` holds `UsedCarListingProjectConfig`;
+  `carwow_used_car_listing_parser/config.py` holds `CarWowParserConfig`,
+  `CarWowTaskConfig`, `CarWowOriginQuery` and `carwow_config()`, which resolves
+  the whole cascade for a run. A layer subclass states its own defaults, and
+  those *do* override the layers below -- that is the difference between a
+  default a layer declares and one it merely inherits.
+* **The environment follows the models** — `CoreSettings`, `ProjectSettings`
+  and `ParserSettings` read one layer from the environment, and every variable
+  is the name `BaseSettings` derives from the field itself:
+  `SERESPAR_DB_HOST`, `SERESPAR_DB_NAME`, `SERESPAR_DB_PORT`,
+  `SERESPAR_DB_SSLMODE`, `SERESPAR_BASE_ORIGIN_URL`, `SERESPAR_MAX_DEPTH`,
+  `SERESPAR_HEADLESS`, and the nested `SERESPAR_ORIGIN_QUERY__POSTCODE`,
+  `SERESPAR_ORIGIN_QUERY__PRICE_MIN`, ... Credentials, which are not config,
+  follow the same naming when they fall back to the environment:
+  `SERESPAR_DB_USER`, `SERESPAR_DB_PASSWORD`.
+
+  **`TASK` is the exception.** It names the task to run, selects the task's
+  env file, and is what the app builder will read to decide what to build, so
+  `TaskConfig.task_id` accepts it alongside `SERESPAR_TASK_ID`. `PROJECT` and
+  `PARSER` are compose's own, not config.
 
 ### Project vs Domain
 
@@ -90,23 +139,32 @@ keeps its DDD meaning everywhere else in this document.
 
 * **Project layer** — `dev-config/<project>/`, selected by the `PROJECT` variable.
   Holds `postgres.env` and the database secrets, i.e. the `ProjectConfig` and
-  `ProjectSecrets` shared by every parser in the project.
+  `ProjectSecrets` shared by every parser in the project. That file serves two
+  containers: `POSTGRES_DB` is the database container's own (it creates the
+  database with it), `SERESPAR_DB_HOST` is the parser's project layer.
 * **Parser layer** — `dev-config/<project>/parsers/<parser>/parser.env`, selected
-  by `PARSER`. Holds the `ORIGIN_URL` and the site cookies secret.
+  by `PARSER`. Holds `SERESPAR_BASE_ORIGIN_URL` and the site cookies secret.
 * **Task layer** — `dev-config/<project>/parsers/<parser>/<task>.env`, selected by
-  `TASK`. Holds the parameters of one exact run.
+  `TASK`. Holds the parameters of one exact run
+  (`SERESPAR_ORIGIN_QUERY__*`, `SERESPAR_MAX_DEPTH`, ...). Anything that
+  identifies the person running the task -- carwow's postcode -- stays out of
+  the repo and is passed in from the shell; compose forwards it.
 
 Docker Compose layers them in that order via `env_file`, so a later file
 overrides an earlier one. The same word drives the source tree:
 `parsing/parsers/base_<project>_parser` and
 `parsing/parsers/<parser>_<project>_parser`.
 
-**Not in the code yet:** `EngineConfig`, `ProjectConfig`/`ProjectSecrets`,
-`ParserConfig`/`ParserSecrets`, `TaskConfig`/`TaskSecrets` as actual types.
-`EngineConfig` material (viewport size, headless mode, network limits) is
-hardcoded in `ParsingSession` or read straight from the environment
-(`SERESPAR_HEADED`); carwow's price / age / fuel / gearbox filters are hardcoded
-in `process_origin_query` where they belong to a `TaskConfig`.
+**Not wired in yet:** there is no dependency injection, so the config is
+resolved at the point of use rather than built once and injected:
+`ParsingSession` falls back to `CoreSettings()` when no `CoreConfig` is passed,
+`serespar.db.postgres.build_engine_from_env()` reads `ProjectSettings()`, and
+carwow's session and `initial_login` call `carwow_config()` /
+`CarWowParserConfig()` themselves. `ConfigCascade.from_env()` is the bridge; it
+disappears when app initialisation builds the layers and injects them.
+
+**Not in the code yet:** `ProjectSecrets` / `ParserSecrets` / `TaskSecrets`.
+Secrets stay out of the config models; credentials come from Docker secrets.
 
 ## 4. State & Synchronization
 
@@ -120,15 +178,20 @@ biggest piece of the follow-up:
   `locator(CARDS_TABLE).wait_for(state="attached")` in the tests.
 * **`ResultSyncBarrier`** — pauses until an individual result locator becomes
   interactive or visible. Today: carwow's `page.wait_for_function()` against a
-  hand-written JS predicate, retried three times; the tests'
+  hand-written JS predicate, retried `result_sync_retries` times with a
+  `result_sync_timeout_ms` timeout; the tests'
   `expect(cell).to_have_attribute("data-loaded", "true")`.
 * **`ContentUnroller`** — forces lazy-loaded results into the viewport. Today:
   scattered `scroll_into_view_if_needed()` calls, plus LinkedIn's
   `mouse.wheel(0, 120)`.
-* **`RetryWithBackoff`** — carwow retries the pagination step three times with a
-  *fixed* one-second sleep. Not backoff.
+* **`RetryWithBackoff`** — carwow retries the pagination step
+  `max_next_pagination_batch_retries` times with a *fixed*
+  `pagination_retry_sleep_seconds`. Configurable now, but still not backoff.
 * **`DelayBehavior`** — bare `sleep(...)` calls in every parser. No humanising
-  pattern, no dummy clicks or mouse jigs.
+  pattern, no dummy clicks or mouse jigs. carwow's are at least fed by config
+  (`form_settle_seconds`, `new_page_load_wait_seconds`);
+  `ParserConfig.default_delay_behavior` names the behaviour that would replace
+  them.
 
 **`BatchLoadTimeoutException`** and **`ElementRenderTimeoutException`** are
 declared in `serespar/exceptions.py` -- the only two that are not with the code
@@ -202,8 +265,9 @@ error.
 
 ## 7. Flow Control & Termination
 
-* **`MaxDepth`** — the `max_depth` argument to `pagination_batches()`, fed by the
-  `MAX_DEPTH` environment variable.
+* **`MaxDepth`** — the `max_depth` argument to `pagination_batches()`, fed by
+  `TaskConfig.max_depth` (`SERESPAR_MAX_DEPTH`), which falls back to the
+  project's `default_max_depth`.
 * **`SessionReport`** — the start date, end date and source recorded on
   `ParsingSessionORM` / the `parsing_session` table, written by
   `SessionReportRepository`. There is no report *object* yet; the row is the

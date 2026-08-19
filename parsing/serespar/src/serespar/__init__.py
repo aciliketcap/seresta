@@ -16,6 +16,15 @@ from .base_extractor import (
     ParsingError,
     UnmatchedSelectorException,
 )
+from .config import (
+    ConfigCascade,
+    ConfigurationException,
+    CoreConfig,
+    EffectiveConfig,
+    ParserConfig,
+    ProjectConfig,
+    TaskConfig,
+)
 from .exceptions import (
     BatchLoadTimeoutException,
     ElementRenderTimeoutException,
@@ -28,9 +37,17 @@ __all__ = [
     "AbstractBaseRepository",
     "BaseExtractor",
     "SessionTracker",
+    # config layers, see config.py
+    "CoreConfig",
+    "ProjectConfig",
+    "ParserConfig",
+    "TaskConfig",
+    "EffectiveConfig",
+    "ConfigCascade",
     # exceptions: the base is in exceptions.py, each subclass lives with the
     # code that raises it
     "SeresparException",
+    "ConfigurationException",
     "QueryProcessException",
     "AuthenticationFailedException",
     "StaleAuthMaterialException",

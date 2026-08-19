@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime
 import json
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Generator, Any, Self
 
 from playwright.sync_api import Locator, sync_playwright, Browser, Page, ViewportSize
 
+from .config import CoreConfig, CoreSettings
 from .exceptions import SeresparException
 
 
@@ -40,25 +40,6 @@ class AccessBlockerEncounteredException(SeresparException):
     TODO: nothing detects these yet; they time out like any missing element.
     """
 
-DEFAULT_VIEWPORT_WIDTH = 1600
-DEFAULT_VIEWPORT_HEIGHT = 1000
-
-# Set this to ask for a visible browser window. Task definitions own it:
-# dev-task.sh exports it, and the test task leaves it to the caller
-# (`SERESPAR_HEADED=1 podman compose up`).
-HEADED_ENV_VAR = "SERESPAR_HEADED"
-TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
-
-
-def headed_from_env() -> bool:
-    """Whether the environment is asking for a visible browser window.
-
-    Anything other than a truthy value -- unset, empty, "0" -- means headless,
-    so a session works on a machine with no X display unless told otherwise.
-    """
-    return os.environ.get(HEADED_ENV_VAR, "").strip().lower() in TRUTHY_ENV_VALUES
-
-
 class ParsingSession():
     """The core orchestrator: it manages the main execution loop of one parsing run.
 
@@ -85,14 +66,14 @@ class ParsingSession():
     _page: Page # playwright page object
     _auth_material_path: Path | str | None
     _origin_url: str
-    _headless: bool
+    _core: CoreConfig
     num_failed_results: int
 
     def __init__(
             self,
             origin_url: str,
             auth_material_path: str | None = None,
-            headless: bool | None = None) -> None:
+            core: CoreConfig | None = None) -> None:
         """`origin_url` is the base web address where the session enters the
         target website.
 
@@ -101,15 +82,19 @@ class ParsingSession():
         what a `CookiePassiveFlow` would do; the `AuthFlow` hierarchy does not
         exist yet.
 
-        `headless=None` reads the mode from `SERESPAR_HEADED`, which is how
-        task definitions drive it. Pass a bool only to pin the mode in code,
-        regardless of the environment."""
+        `core` is the `CoreConfig` layer -- window size, headless mode -- and
+        carries every default this session used to hardcode. Left out, it is
+        read from the environment (`CoreSettings`), which is how task
+        definitions drive it today. TODO: injected by the builder once app
+        initialisation uses DI."""
         self._auth_material_path = auth_material_path
         self._origin_url = origin_url
-        self._headless = not headed_from_env() if headless is None else headless
-        # TODO: make these readable from a config
+        self._core = core if core is not None else CoreSettings()
         # TODO: can we make this a prop which can be set in real time?
-        self._view_port = ViewportSize(width=DEFAULT_VIEWPORT_WIDTH, height=DEFAULT_VIEWPORT_HEIGHT)
+        self._view_port = ViewportSize(
+            width=self._core.viewport_width,
+            height=self._core.viewport_height,
+        )
 
     def __enter__(self) -> Self:
         self._start_time = datetime.now()
@@ -119,9 +104,8 @@ class ParsingSession():
         self._pw_ctx = sync_playwright()
         pw = self._pw_ctx.__enter__()
 
-        # TODO: viewport size etc. needs to be passed from a config to here
-        logger.info(f"Launching chromium {'headless' if self._headless else 'headed'}")
-        self._browser = pw.chromium.launch(headless=self._headless)
+        logger.info(f"Launching chromium {'headless' if self._core.headless else 'headed'}")
+        self._browser = pw.chromium.launch(headless=self._core.headless)
         context = self._browser.new_context(
             viewport=self._view_port
         )

@@ -1,22 +1,25 @@
-"""SQLAlchemy bootstrap helpers shared by all job posting parsers.
+"""SQLAlchemy bootstrap helpers shared by all used car listing parsers.
 
 This module owns the declarative ``Base`` so that all ORM classes across
-``base_job_postings_parser`` and apps derived from it register with a single
+``base_used_car_listing_parser`` and apps derived from it register with a single
 ``MetaData`` instance.
 
 Connection info is split between:
 
-- environment variables for non-secret configuration (host, port, db,
-  sslmode);
-- two secrets for user and password
+- the `ProjectConfig` layer for non-secret configuration (host, port, db,
+  sslmode), so those defaults live on the config model rather than here;
+- two secrets for user and password, read from the Docker secrets mount and
+  falling back to the environment.
 """
 
-import json
 import os
-from pathlib import Path
 
+from pydantic import ValidationError
+from serespar.config import ConfigurationException, ProjectConfig, ProjectSettings
 from sqlalchemy import URL, Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+SECRETS_DIR = "/run/secrets"
 
 class Base(DeclarativeBase):
     """Declarative base for every ORM class in this project."""
@@ -24,7 +27,7 @@ class Base(DeclarativeBase):
 def get_secret(secret_name) -> str:
     """Reads a Docker secret from the standard /run/secrets/ mount point or raises IOError."""
     # TODO: modify this to work with Vault secrets as well
-    with open(f'/run/secrets/{secret_name}', 'r') as secret_file:
+    with open(f'{SECRETS_DIR}/{secret_name}', 'r') as secret_file:
             return secret_file.read().strip()
 
 def read_pg_creds_from_files() -> tuple[str, str]:
@@ -35,51 +38,51 @@ def read_pg_creds_from_files() -> tuple[str, str]:
 
 def read_pg_creds_from_env() -> tuple[str, str]:
     try:
-        user = os.environ["POSTGRES_USER"]
-        password = os.environ["POSTGRES_PASSWORD"]
+        user = os.environ["SERESPAR_DB_USER"]
+        password = os.environ["SERESPAR_DB_PASSWORD"]
         return user, password
     except KeyError as err:
-        raise KeyError(
+        raise ConfigurationException(
             f"Required Postgres env var {err!s} is not set."
         ) from err
 
 def read_pg_credentials() -> tuple[str, str]:
     """Try to read from docker secrets dir. Otherwise read from env vars"""
     try:
-        return read_pg_creds_from_files()        
+        return read_pg_creds_from_files()
     except IOError:
         return read_pg_creds_from_env()
 
-def build_engine_from_env() -> Engine:
-    """Build a SQLAlchemy ``Engine`` from env vars + the secrets file.
+def build_engine(project: ProjectConfig) -> Engine:
+    """Build a SQLAlchemy ``Engine`` for the project's database.
 
-    Required env vars: ``POSTGRES_HOST``, ``POSTGRES_DB``.
-    Optional env vars: ``POSTGRES_PORT`` (default 5432), ``POSTGRES_SSLMODE``
-    (default ``disable``).
+    Everything but the credentials comes from the `ProjectConfig` layer, so the
+    port and sslmode defaults live on the model.
     """
-    try:
-        host = os.environ["POSTGRES_HOST"]
-        database = os.environ["POSTGRES_DB"]
-    except KeyError as err:
-        raise KeyError(
-            f"Required Postgres env var {err!s} is not set."
-        ) from err
-
-    port = int(os.environ.get("POSTGRES_PORT", "5432"))
-    sslmode = os.environ.get("POSTGRES_SSLMODE", "disable")
-
     user, password = read_pg_credentials()
 
     url = URL.create(
         drivername="postgresql+psycopg",
         username=user,
         password=password,
-        host=host,
-        port=port,
-        database=database,
-        query={"sslmode": sslmode} if sslmode else {},
+        host=project.db_host,
+        port=project.db_port,
+        database=project.db_name,
+        query={"sslmode": project.db_sslmode} if project.db_sslmode else {},
     )
     return create_engine(url)
+
+
+def build_engine_from_env() -> Engine:
+    """`build_engine` with the project layer read from the environment."""
+    try:
+        project = ProjectSettings()
+    except ValidationError as err:
+        raise ConfigurationException(
+            f"The Postgres configuration is incomplete: {err}"
+        ) from err
+
+    return build_engine(project)
 
 
 def make_sessionmaker(engine: Engine) -> sessionmaker[Session]:

@@ -1,14 +1,15 @@
 task() {
     echo TEST TASK STARTED
     # Headless unless the caller asked otherwise, so the suite runs on a box
-    # with no X display: SERESPAR_HEADED=1 podman compose up
-    # Values kept in step with headed_from_env() in serespar/parsing_session.py.
+    # with no X display: SERESPAR_HEADLESS=0 podman compose up
+    # The variable is read by CoreConfig.headless in serespar/config.py; the
+    # values below are the falsey ones pydantic accepts.
     # Assign through a default first: init.sh runs under `set -u`, so expanding
-    # an unset SERESPAR_HEADED directly would kill the task.
-    local headed="${SERESPAR_HEADED:-}"
-    case "${headed,,}" in
-        1|true|yes|on) echo "Browser mode: headed" ;;
-        *)             echo "Browser mode: headless" ;;
+    # an unset SERESPAR_HEADLESS directly would kill the task.
+    local headless="${SERESPAR_HEADLESS:-}"
+    case "${headless,,}" in
+        0|false|no|off|f|n) echo "Browser mode: headed" ;;
+        *)                  echo "Browser mode: headless" ;;
     esac
     # while true; do
     #     echo INITIATING TEST DEBUG SESSION
