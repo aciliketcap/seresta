@@ -1,8 +1,13 @@
-"""Base parsing session for used car listing scrapers.
+"""Base parsing session for used car listing scrapers, from before DI.
 
 Subclasses serespar's ``ParsingSession`` and, on top of the browser
 lifecycle, owns a ``parsing_session`` row: it is created (with a start date) when
 the context is entered and stamped with an end date when the context exits.
+
+TODO: an assembled application gets that row from `ParserApp` instead, which
+takes a `SessionReporter` the builder injects -- see
+`UsedCarListingParserBuilder`. carwow no longer subclasses this; Big Motoring
+World still does, and this class goes when that parser is rewritten.
 """
 
 import logging
