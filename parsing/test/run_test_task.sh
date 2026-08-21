@@ -1,4 +1,4 @@
-task() {
+start_task() {
     echo TEST TASK STARTED
     # Headless unless the caller asked otherwise, so the suite runs on a box
     # with no X display: SERESPAR_HEADLESS=0 podman compose up

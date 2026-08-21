@@ -1,6 +1,6 @@
 MODULE_PATH="${PARSER}_${PROJECT}_parser.src"
 
-task() {
+start_task() {
     # Dev sessions are for watching the parser work, so always show the window.
     # Deliberately not overridable: this task is useless without a browser to
     # look at. Drop this line if you ever need a headless dev run.

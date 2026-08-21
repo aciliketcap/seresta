@@ -9,13 +9,14 @@ services:
       - DISPLAY
       # unset on the host means headless, which is what CI wants
       - SERESPAR_HEADLESS
+      - TASK_STARTER_SCRIPT_PATH=/run_test_task.sh
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ./../serespar/:/opt/serespar
       - ./test_parser:/test_parser
       - ./ci_reports:/reports
       - ./../docker/init.sh:/init.sh
-      - ./run_test_task.sh:/test_parser/task.sh
+      - ./run_test_task.sh:/run_test_task.sh
     working_dir: /test_parser
     command: /init.sh
     depends_on:

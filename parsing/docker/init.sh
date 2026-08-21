@@ -31,6 +31,11 @@ export PYTHONPATH=/opt/serespar/src
 set +e
 trap - ERR
 
-source task.sh # contains bash entry point task()
-task
+if [ -f "$TASK_STARTER_SCRIPT_PATH" ]; then
+    source "$TASK_STARTER_SCRIPT_PATH"
+else
+    source task.sh
+fi
+
+start_task
 
