@@ -30,10 +30,12 @@ from serespar import (
     AbstractBaseRepository,
     BaseExtractor,
     ExtractionCriticalError,
+    ParserBuilder,
     SessionTracker,
     ParsingError,
     ParsingSession,
 )
+from serespar.config import ParserConfig, ProjectConfig, TaskConfig
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +278,67 @@ class NeverSetsParsedEntityExtractor(CardExtractor):
 
 
 # --------------------------------------------------------------------------
+# The application, assembled by the builder
+# --------------------------------------------------------------------------
+
+class StubSitesProjectConfig(ProjectConfig):
+    """The project layer for the stub sites: no database anywhere.
+
+    `ProjectConfig` keeps the db fields for every project, storage or not, so
+    this states the ones it has no use for rather than leaving them required.
+    """
+
+    __test__ = False
+
+    db_host: str = "no-database"
+    db_name: str = "no-database"
+
+
+class StubParserBuilder(ParserBuilder):
+    """Composition root for the suite: the stub app, with nothing persisted.
+
+    The layers are handed over rather than read from the environment, and the
+    repository is a `TestRepo` that keeps everything in a list, so building the
+    application here goes through exactly the code path production does.
+    """
+
+    __test__ = False
+
+    project_config_cls = StubSitesProjectConfig
+    # No env file feeds these; each test app passes its own layer objects.
+    parser_config_cls = None
+    task_config_cls = None
+    extractor_cls = CardExtractor
+
+
+class LazyCardsParserBuilder(StubParserBuilder):
+    __test__ = False
+
+    session_cls = LazyCardsParsingSession
+
+
+class DefectsParserBuilder(StubParserBuilder):
+    __test__ = False
+
+    session_cls = DefectsParsingSession
+
+
+def build_stub_app(
+    builder_cls: type[StubParserBuilder],
+    origin_url: str,
+    repository: TestRepo | None = None,
+    max_depth: int = NUM_PAGINATION_BATCHES,
+):
+    """One assembled stub application, ready to run or to step through."""
+    builder = builder_cls(
+        parser=ParserConfig(base_origin_url=origin_url),
+        task=TaskConfig(task_id="stub-sites", max_depth=max_depth),
+        repository=repository if repository is not None else TestRepo(),
+    )
+    return builder.build()
+
+
+# --------------------------------------------------------------------------
 # Fixtures / helpers
 # --------------------------------------------------------------------------
 
@@ -293,9 +356,10 @@ def _wait_for_nginx() -> None:
 
 @pytest.fixture
 def defects_page() -> Generator[Page, Any, None]:
-    with DefectsParsingSession(STUB_DEFECTS_URL, None) as session:
-        session.page.set_default_timeout(DEFECT_TIMEOUT_MS)
-        yield session.page
+    with build_stub_app(DefectsParserBuilder, STUB_DEFECTS_URL) as app:
+        page = app.session.page
+        page.set_default_timeout(DEFECT_TIMEOUT_MS)
+        yield page
 
 
 @pytest.fixture
@@ -327,8 +391,8 @@ def extractor(defects_page: Page, repo: TestRepo, tracker: SessionTracker):
 
 def test_stub_really_is_lazy() -> None:
     """Guard: if index.html ever renders eagerly, the happy path stops proving anything."""
-    with LazyCardsParsingSession(STUB_INDEX_URL, None) as session:
-        page = session.page
+    with build_stub_app(LazyCardsParserBuilder, STUB_INDEX_URL) as app:
+        page = app.session.page
 
         # goto() waited for `load`; the table is injected only after that.
         assert page.locator(CARDS_TABLE).count() == 0
@@ -374,21 +438,16 @@ def test_stub_really_is_lazy() -> None:
 
 
 def test_integ_lazy_happy_path() -> None:
-    with LazyCardsParsingSession(STUB_INDEX_URL, None) as session:
-        repo = TestRepo()
-        for pagination_index in session.pagination_batches(NUM_PAGINATION_BATCHES):
-            result_index = 0
-            for page, card_loc in session.results_in_pagination_batch():
-                result_index += 1
-                tracker = SessionTracker(1, pagination_index, result_index)
-                try:
-                    with CardExtractor(repo, page, card_loc, tracker) as xtor:
-                        xtor.extract_and_persist()
-                except Exception:
-                    session.num_failed_results += 1
+    repo = TestRepo()
+    app = build_stub_app(LazyCardsParserBuilder, STUB_INDEX_URL, repository=repo)
+
+    with app:
+        # `run()` is the same loop; stepping through it is how this test gets
+        # to close off a pagination batch in the repo as it goes.
+        for _pagination_index in app.run_pagination_batches():
             repo.next_pagination_batch()
 
-        assert session.num_failed_results == 0
+        assert app.session.num_failed_results == 0
         assert len(repo.batches) == NUM_PAGINATION_BATCHES
 
         for batch_ix, parsed_batch in enumerate(repo.batches):

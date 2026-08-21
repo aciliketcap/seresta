@@ -10,16 +10,13 @@ from the environment; see `serespar/config.py` for the cascade and its override
 rule. Anything an env file needs to set uses the name `BaseSettings` derives
 from the field: `SERESPAR_MAX_DEPTH`, `SERESPAR_ORIGIN_QUERY__PRICE_MIN`, ...
 
-TODO: `carwow_config()` resolves the cascade at the point of use. It is the
-bridge until app initialisation is done with dependency injection, at which
-point `__main__` builds the config once and injects it.
+Nothing here is read at the point of use: `CarWowUsedCarListingParserBuilder`
+resolves these layers once, at start-up, and injects the resulting
+`CarWowConfig` into the session, the strategy and the repository.
 """
 
-from functools import cache
-
-from base_used_car_listing_parser.config import UsedCarListingProjectConfig
 from pydantic import BaseModel
-from serespar.config import ConfigCascade, EffectiveConfig, ParserSettings, TaskConfig
+from serespar.config import EffectiveConfig, ParserSettings, TaskConfig
 
 
 class CarWowOriginQuery(BaseModel):
@@ -87,17 +84,3 @@ class CarWowTaskConfig(TaskConfig):
 
 class CarWowConfig(CarWowTaskConfig, CarWowParserConfig, EffectiveConfig):
     """The resolved cascade for a carwow run, with carwow's own fields typed."""
-
-
-@cache
-def carwow_config() -> CarWowConfig:
-    """Resolve the whole cascade for a carwow run.
-
-    Cached: the layers are read once per process, exactly like the module-level
-    constants this replaces.
-    """
-    return ConfigCascade.from_env(
-        project=UsedCarListingProjectConfig,
-        parser=CarWowParserConfig,
-        task=CarWowTaskConfig,
-    ).resolve(effective_cls=CarWowConfig)

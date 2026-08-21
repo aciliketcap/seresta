@@ -5,6 +5,10 @@ This is the working copy of the glossary agreed in
 It records **what the terms mean and where they live in the code today**, so the
 vocabulary and the source stay honest with each other.
 
+How these pieces are assembled into a running application -- the builder, the
+ports and where configuration is resolved -- is
+[di-and-config.md](di-and-config.md).
+
 Individual Domains and Parsers keep their own localised glossaries for
 business-specific terms (`car card`, `job posting`, `deal-card`, ...) and link
 back here. On disk a Domain is carried by a *project* — see
@@ -41,9 +45,30 @@ open-coded.
   `carwow_used_car_listing_parser/config.py`, holding the postcode, the price
   range, the age range, the fuel types and the transmission, i.e. everything
   `process_origin_query` types into the filter forms.
-* **`OriginQueryProcess`** — `ParsingSession.process_origin_query()`. The base
-  implementation just navigates to the `OriginUrl`; carwow overrides it to fill
-  the filter forms by hand.
+* **`OriginQueryProcess`** — `serespar/ports.py`, with `NavigateToOriginUrl`
+  in `serespar/origin_query.py` as the default and
+  `CarWowFilterFormsQueryProcess` as carwow's. The strategy the builder injects
+  into the session: open the `OriginUrl`, and where a site only takes its query
+  through its own widgets, fill those in. `ParsingSession.process_origin_query()`
+  just runs it.
+* **`ParserApp`** — `serespar/app.py`. One assembled parsing application, and
+  the loop that is the point of it: walk the `PaginationBatch`es, extract every
+  result, hand each to the repository, count what failed. `run()` does the lot
+  and returns a `SessionReport`; `run_pagination_batches()` yields between
+  batches.
+* **`ParserBuilder`** — `serespar/builder.py`. The composition root: it builds
+  the config layers, resolves the cascade once, builds the adapters and wires
+  the `ParserApp`. Subclassed per project (`UsedCarListingParserBuilder`) and
+  then per parser (`CarWowUsedCarListingParserBuilder`). **Supersedes the name
+  `ParsingSessionBuilder`** from the original glossary, because what it builds
+  is the whole application and not only the session.
+* **`AppAssemblyException`** — `serespar/builder.py`, and
+  **`AppNotOpenException`** — `serespar/app.py`. A builder that cannot put an
+  application together, and an application asked to parse before it has a
+  browser open.
+* **`ParsingTask`** — the task layer of the config: `TaskConfig` and its
+  per-parser subclasses, named by `task_id` (the `TASK` variable, which also
+  picks the `<task>.env` file).
 
 * **`ConfigurationException`** — `serespar/config.py`. Raised when the config
   layers do not add up to a usable configuration, and when the Postgres
@@ -51,10 +76,9 @@ open-coded.
 * **`QueryProcessException`** — `serespar/parsing_session.py`. Declared;
   nothing raises it yet.
 
-**Not in the code yet:** `ParsingTask` (exists only as a `<task>.env` file and
-the `TASK` variable), `ParsingSessionBuilder` (there is no DI — each parser's
-`__main__.py` hand-wires everything). `OriginQueryProcess` is a method on the
-session rather than an injectable component that takes an `OriginQuery`.
+**Not in the code yet:** nothing in this section. The parsers that have not
+been moved onto the builder yet — Big Motoring World, LinkedIn — still
+hand-wire their `__main__.py`.
 
 ## 2. Authentication & Security
 
@@ -108,8 +132,8 @@ The layered configuration and secrets, cascading `Core` -> `Project` ->
 * **Per project and per parser layers** —
   `base_used_car_listing_parser/config.py` holds `UsedCarListingProjectConfig`;
   `carwow_used_car_listing_parser/config.py` holds `CarWowParserConfig`,
-  `CarWowTaskConfig`, `CarWowOriginQuery` and `carwow_config()`, which resolves
-  the whole cascade for a run. A layer subclass states its own defaults, and
+  `CarWowTaskConfig`, `CarWowOriginQuery` and `CarWowConfig`, the flat model
+  the cascade resolves into. A layer subclass states its own defaults, and
   those *do* override the layers below -- that is the difference between a
   default a layer declares and one it merely inherits.
 * **The environment follows the models** — `CoreSettings`, `ProjectSettings`
@@ -155,13 +179,15 @@ overrides an earlier one. The same word drives the source tree:
 `parsing/parsers/base_<project>_parser` and
 `parsing/parsers/<parser>_<project>_parser`.
 
-**Not wired in yet:** there is no dependency injection, so the config is
-resolved at the point of use rather than built once and injected:
-`ParsingSession` falls back to `CoreSettings()` when no `CoreConfig` is passed,
-`serespar.db.postgres.build_engine_from_env()` reads `ProjectSettings()`, and
-carwow's session and `initial_login` call `carwow_config()` /
-`CarWowParserConfig()` themselves. `ConfigCascade.from_env()` is the bridge; it
-disappears when app initialisation builds the layers and injects them.
+* **Who resolves it** — `ParserBuilder`, and nothing else. It builds every
+  layer, flattens the cascade once at start-up and injects the resulting
+  `EffectiveConfig` into the session, the strategies, the repositories and the
+  app. Reading the environment is a composition-root privilege; see
+  [di-and-config.md](di-and-config.md).
+
+**Still reading config at the point of use:** the parsers not on the builder
+yet (Big Motoring World, LinkedIn) and carwow's `initial_login.py`, which is a
+second entry point needing only the parser layer.
 
 **Not in the code yet:** `ProjectSecrets` / `ParserSecrets` / `TaskSecrets`.
 Secrets stay out of the config models; credentials come from Docker secrets.
@@ -223,6 +249,10 @@ barriers once those are built. A barrier that fails surfaces a raw
   `AbstractParsedEntityORM` in `serespar/db/orm.py` carries the shared columns
   and the polymorphic mapper args, `BaseRawUsedCarListingORM` sets the table
   name and the car columns, and the per-site ORMs join onto it.
+* **`ResultExtractor` / `ExtractorFactory`** — `serespar/ports.py`. What the
+  application asks of an extractor -- a context manager with
+  `extract_and_persist()` -- and the callable that makes one per result, bound
+  to the repository by the builder.
 * **`BaseExtractor`** — `serespar/base_extractor.py`. The abstract foundation for
   all extraction logic; a context manager that turns a `ResultLocator` into a
   `ParsedEntity` and hands it to the repository, with the `critical_info` /
@@ -274,11 +304,12 @@ error.
 * **`MaxDepth`** — the `max_depth` argument to `pagination_batches()`, fed by
   `TaskConfig.max_depth` (`SERESPAR_MAX_DEPTH`), which falls back to the
   project's `default_max_depth`.
-* **`SessionReport`** — the start date, end date and source recorded on
-  `ParsingSessionORM` / the `parsing_session` table (both in serespar now),
-  written by `SessionReportRepository` in `serespar/db/repos.py`. There is no
-  report *object* yet; the row is the identity of the session, and these
-  columns are the beginnings of its report.
+* **`SessionReport`** — two halves. The row: the start date, end date and
+  source on `ParsingSessionORM` / the `parsing_session` table, written through
+  the `SessionReporter` port by `SessionReportRepository` in
+  `serespar/db/repos.py`. The object: `serespar/app.py`, returned by
+  `ParserApp.run()`, carrying the session id, the dates and the counts of
+  batches, results and failures.
 
   **Naming decision.** The row names the session, not a report about it —
   `parsed_entity_in_parsing_session` and `raw_*.last_found_in` both point at it
@@ -287,8 +318,8 @@ error.
 
 **Not in the code yet:** `SessionTracker` in its real, session-scoped form —
 `ParsingSession.num_failed_results` is all we track, and nothing answers "should
-we stop?"; `MaxDepth` is just a loop bound the caller passes. The report is never
-emitted anywhere beyond the row. `AccessBlockerEncounteredException` is
+we stop?"; `MaxDepth` is just a loop bound `ParserApp` reads off the config.
+The report object is returned and logged, but nothing stores its counts. `AccessBlockerEncounteredException` is
 declared in `serespar/parsing_session.py` but nothing detects the condition: a
 CAPTCHA or unexpected login prompt just times out like any other missing
 element.
@@ -305,8 +336,12 @@ element.
   outermost layer, where that whole path is what you are holding: `data_sink` in
   every parser's `__main__.py`. That object is headed into `ParsingSession`
   itself in the architecture refactor.
+* **`EntityRepository`** — `serespar/ports.py`. The port the application
+  drives: `add` / `get`, as a `Protocol`, so anything with those methods is a
+  `DataSink` — including a test repository that keeps results in a list.
 * **`AbstractBaseRepository`** — `serespar/base_repos.py`. The abstract
-  `add` / `get` interface every parser's repository implements. Specialised per
+  `add` / `get` interface every parser's repository implements, and the ABC
+  half of the port above. Specialised per
   project (`AbstractBaseRawUsedCarListingRepository`,
   `AbstractBaseRawJobPostingRepository`) and implemented on SQLAlchemy
   (`BaseRawUsedCarListingSqlAlchemyRepository` and its per-site subclasses).

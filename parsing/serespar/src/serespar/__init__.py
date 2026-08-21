@@ -1,3 +1,13 @@
+from .app import AppNotOpenException, ParserApp, SessionReport
+from .builder import AppAssemblyException, ParserBuilder
+from .origin_query import NavigateToOriginUrl
+from .ports import (
+    EntityRepository,
+    ExtractorFactory,
+    OriginQueryProcess,
+    ResultExtractor,
+    SessionReporter,
+)
 from .parsing_session import (
     ParsingSession,
     AccessBlockerEncounteredException,
@@ -32,6 +42,17 @@ from .exceptions import (
 )
 
 __all__ = [
+    # the application and the composition root, see app.py and builder.py
+    "ParserApp",
+    "ParserBuilder",
+    "SessionReport",
+    # ports, see ports.py
+    "EntityRepository",
+    "SessionReporter",
+    "OriginQueryProcess",
+    "ResultExtractor",
+    "ExtractorFactory",
+    "NavigateToOriginUrl",
     "ParsingSession",
     "save_login_cookies",
     "AbstractBaseRepository",
@@ -62,4 +83,6 @@ __all__ = [
     "PaginationControlMissingException",
     "AccessBlockerEncounteredException",
     "SessionRepositoryException",
+    "AppAssemblyException",
+    "AppNotOpenException",
     ]

@@ -9,6 +9,8 @@ from playwright.sync_api import Locator, sync_playwright, Browser, Page, Viewpor
 
 from .config import CoreConfig, CoreSettings
 from .exceptions import SeresparException
+from .origin_query import NavigateToOriginUrl
+from .ports import OriginQueryProcess
 
 
 logger = logging.getLogger(__name__)
@@ -46,19 +48,24 @@ class ParsingSession():
     A parsing session consists of:
         1. Opening a page
         2. Applying the `OriginQuery`, which opens a list of paginated search results
-            - Preferably the `OriginUrl` contains everything so results come up directly. But if doing some action like filling in an input box and clicking a button is necessary it can be done by subclassing this class and overloading the `process_origin_query` function
+            - Preferably the `OriginUrl` contains everything so results come up directly. Where a site only takes its query through its own widgets, an `OriginQueryProcess` strategy fills them in; the builder injects it.
         3. Going through the results of the current `PaginationBatch`:
             - Generator gives control to caller so that they can do smt like:
                 - Click certain elements of some results fitting a criteria
                 - Extract key info from the search result
+            - `ParserApp` is that caller in an assembled application; a test can be too.
         4. When the end of the batch is reached click the `NextPaginationTrigger` for the next batch
             - This is also done by the caller. Ofc this can work with infinite scrolling as well.
         5. We quit when we have reached `MaxDepth` in pagination. TODO: However we should be able to understand when we reach the end of pagination and quit there. Or after parsing a max number of entities.
-        6. TODO: We should generate a `SessionReport` somewhere.
 
-    TODO: the `SessionTracker` (limits, errors, "should we stop?") and the
-    `SessionReport` are not broken out yet; `num_failed_results` and the
-    start/end times below are all we track for now.
+    The session is the browser-side adapter: it owns the Playwright lifecycle
+    and knows how one site is laid out. What to do with the results is the
+    application's business -- see `ParserApp` in `app.py`, which drives the two
+    generators below.
+
+    TODO: the `SessionTracker` (limits, errors, "should we stop?") is not
+    broken out yet; `num_failed_results` and the start/end times below are all
+    the session tracks.
     """
     _start_time: datetime | None
     _end_time: datetime | None
@@ -66,14 +73,16 @@ class ParsingSession():
     _page: Page # playwright page object
     _auth_material_path: Path | str | None
     _origin_url: str
-    _core: CoreConfig
+    _config: CoreConfig
+    _origin_query_process: OriginQueryProcess
     num_failed_results: int
 
     def __init__(
             self,
             origin_url: str,
             auth_material_path: str | None = None,
-            core: CoreConfig | None = None) -> None:
+            config: CoreConfig | None = None,
+            origin_query_process: OriginQueryProcess | None = None) -> None:
         """`origin_url` is the base web address where the session enters the
         target website.
 
@@ -82,18 +91,27 @@ class ParsingSession():
         what a `CookiePassiveFlow` would do; the `AuthFlow` hierarchy does not
         exist yet.
 
-        `core` is the `CoreConfig` layer -- window size, headless mode -- and
-        carries every default this session used to hardcode. Left out, it is
-        read from the environment (`CoreSettings`), which is how task
-        definitions drive it today. TODO: injected by the builder once app
-        initialisation uses DI."""
+        `config` is the resolved configuration, injected by the builder. Only
+        the `CoreConfig` layer -- window size, headless mode -- is anyone's
+        business here; a parser's session subclass narrows the annotation to
+        its own `EffectiveConfig` subclass and reads its own fields off it.
+        Left out, the core layer is read from the environment
+        (`CoreSettings`), which is what a session built by hand still gets.
+
+        `origin_query_process` is the `OriginQueryProcess` strategy. Left out,
+        the session just navigates to the `OriginUrl`."""
         self._auth_material_path = auth_material_path
         self._origin_url = origin_url
-        self._core = core if core is not None else CoreSettings()
+        self._config = config if config is not None else CoreSettings()
+        self._origin_query_process = (
+            origin_query_process
+            if origin_query_process is not None
+            else NavigateToOriginUrl(origin_url)
+        )
         # TODO: can we make this a prop which can be set in real time?
         self._view_port = ViewportSize(
-            width=self._core.viewport_width,
-            height=self._core.viewport_height,
+            width=self._config.viewport_width,
+            height=self._config.viewport_height,
         )
 
     def __enter__(self) -> Self:
@@ -104,8 +122,8 @@ class ParsingSession():
         self._pw_ctx = sync_playwright()
         pw = self._pw_ctx.__enter__()
 
-        logger.info(f"Launching chromium {'headless' if self._core.headless else 'headed'}")
-        self._browser = pw.chromium.launch(headless=self._core.headless)
+        logger.info(f"Launching chromium {'headless' if self._config.headless else 'headed'}")
+        self._browser = pw.chromium.launch(headless=self._config.headless)
         context = self._browser.new_context(
             viewport=self._view_port
         )
@@ -137,18 +155,14 @@ class ParsingSession():
         self._pw_ctx.__exit__()
 
     def process_origin_query(self) -> None:
-        """The `OriginQueryProcess`: apply the `OriginQuery` to the target site.
+        """Run the injected `OriginQueryProcess` against this session's page.
 
-        Open the `OriginUrl` and do whatever is necessary to get paginated search results on the browser.
-
-        Ideally we shouldn't need to type in the search phrase or click anything including a search button. However in cases where this is not possible subclass should override this function to do whatever is necessary.
-
-        TODO: this is a method on the session rather than an injectable
-        `OriginQueryProcess` component taking an `OriginQuery`; breaking it out
-        is follow-up work.
+        Whatever it takes to get paginated search results on screen: usually
+        just opening the `OriginUrl`, sometimes filling in the site's own
+        filter widgets. Which of those happens is the strategy's business, not
+        the session's -- see `serespar/ports.py` and `origin_query.py`.
         """
-        self._page.goto(self._origin_url, wait_until="load")
-        logger.info(f"URL `{self._origin_url}` should be loaded now.")
+        self._origin_query_process.open_results(self._page)
 
     @abstractmethod
     def pagination_batches(self, max_depth: int) -> Generator[int, Any, None]:
